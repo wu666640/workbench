@@ -45,6 +45,7 @@ let webReminderWatchTimer = null;
 let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 const REMINDER_TAG = "workbench-reminder";
+const APP_VERSION = "1.1.0";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const HABIT_ICONS = ["water", "book", "walk", "sleep", "diet", "focus"];
@@ -2089,6 +2090,7 @@ function renderSettings() {
         <h1>设置</h1>
         <p>名字、标题、同步和数据都由你控制。</p>
       </div>
+      <span class="panel-meta">版本 ${APP_VERSION}</span>
     </div>
 
     <div class="settings-list">
