@@ -437,13 +437,22 @@ async function testNotification() {
     }
   }
   if (!("Notification" in window) || Notification.permission !== "granted") {
-    toast("请先开启通知");
+    if ("Notification" in window && Notification.permission === "denied") {
+      toast("通知权限已被拒绝，请到浏览器设置里允许");
+    } else {
+      toast("请先点“开启通知”");
+    }
     return;
   }
-  new Notification("测试提醒", {
-    body: "你的工作台通知已经接通",
-    icon: "./assets/icons/icon-192.png"
-  });
+  try {
+    new Notification("测试提醒", {
+      body: "你的工作台通知已经接通",
+      icon: "./assets/icons/icon-192.png"
+    });
+    toast("测试通知已发送");
+  } catch (err) {
+    toast("浏览器通知被阻止，请检查系统通知设置");
+  }
 }
 
 function dayProgress() {
