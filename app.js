@@ -1025,11 +1025,16 @@ function mergeAdjacentCourses(courses) {
     let current = null;
     for (const course of group) {
       const previousEnd = current ? periodNumberForTime(current.end, "end") : 0;
-      const nextStart = course ? periodNumberForTime(course.start, "start") : 0;
+      const nextStart = periodNumberForTime(course.start, "start");
       if (current && previousEnd + 1 === nextStart) {
         current.end = course.end;
+        current.endPeriod = Number(course.endPeriod) || periodNumberForTime(course.end, "end");
       } else {
-        current = { ...course };
+        current = {
+          ...course,
+          startPeriod: Number(course.startPeriod) || periodNumberForTime(course.start, "start"),
+          endPeriod: Number(course.endPeriod) || periodNumberForTime(course.end, "end")
+        };
         merged.push(current);
       }
     }
@@ -1406,6 +1411,8 @@ function confirmImport() {
       title: course.title,
       start: course.start,
       end: course.end,
+      startPeriod: Number(course.startPeriod) || periodNumberForTime(course.start, "start"),
+      endPeriod: Number(course.endPeriod) || periodNumberForTime(course.end, "end"),
       weekday: Number(course.weekday),
       location: course.location || "",
       teacher: course.teacher || "",
