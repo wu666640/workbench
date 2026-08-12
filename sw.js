@@ -6,6 +6,7 @@ const SHELL = [
   "./app.js",
   "./manifest.webmanifest",
   "./assets/bg-light.svg",
+  "./assets/xlsx.full.min.js",
   "./favicon.svg",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",

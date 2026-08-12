@@ -982,6 +982,17 @@ textarea:focus {
   color: var(--rose);
 }
 
+.room-shot-preview {
+  display: block;
+  width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
+  margin-bottom: 12px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
 .room-period-label {
   display: flex;
   align-items: baseline;
@@ -1546,6 +1557,13 @@ textarea:focus {
   color: var(--muted);
   font-size: 0.86rem;
   line-height: 1.55;
+}
+
+.project-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .server-address {

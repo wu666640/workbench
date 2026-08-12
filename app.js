@@ -13,6 +13,8 @@ const state = {
 
 const LOCAL_STATE_KEY = "personal-workbench-local-v1";
 const CLOUD_CONFIG_KEY = "personal-workbench-cloud-v1";
+const AI_CONFIG_KEY = "workbench-ai-config-v1";
+const AUTH_STORAGE_KEY = "workbench-auth-v1";
 const DEFAULT_CLOUD_CONFIG = {
   url: "https://lqkdatdtgoxztawmtigj.supabase.co",
   key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxxa2RhdGR0Z294enRhd210aWdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTM1NjIsImV4cCI6MjEwMjA2OTU2Mn0.-oSyoXCTkry5dJ5XyYrQwHk2LowPU5YAbbg-xESR3MY",
@@ -22,6 +24,7 @@ const DEFAULT_CLOUD_CONFIG = {
 let revision = 0;
 let currentView = "today";
 let taskFilter = "today";
+let scheduleSemester = "";
 let mobileDay = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
 let editingTaskId = null;
 let editingHabitId = null;
@@ -40,14 +43,18 @@ let syncStatus = "connecting";
 let saveTimer = null;
 let lastLocalStorageWarning = 0;
 let cloudConfig = readCloudConfig();
+let aiConfig = readAIConfig();
+let authSession = readAuthSession();
+let currentSpaceId = authSession?.user?.id || "personal-workbench";
 let notificationEnabled = localStorage.getItem("workbench-notification-enabled") === "1";
 let webReminderWatchTimer = null;
 let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.1.2";
+const APP_VERSION = "1.2.0";
 const GITHUB_REPO = "wu666640/workbench";
+let pendingRoomScreenshot = null;
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const HABIT_ICONS = ["water", "book", "walk", "sleep", "diet", "focus"];
@@ -626,8 +633,27 @@ function todayTasks() {
 function todaySchedule() {
   const day = weekdayIndex();
   return state.schedule
-    .filter((item) => Number(item.weekday) === day && scheduleVisible(item))
+    .filter((item) => Number(item.weekday) === day && scheduleVisible(item) && scheduleInSemester(item))
     .sort((a, b) => parseTime(a.start) - parseTime(b.start));
+}
+
+function scheduleSemesterList() {
+  const semesters = new Set();
+  for (const item of state.schedule) {
+    if (item.semester) semesters.add(item.semester);
+  }
+  return Array.from(semesters).sort((a, b) => String(b).localeCompare(String(a), "zh-CN"));
+}
+
+function semesterOptions() {
+  const options = scheduleSemesterList()
+    .map((semester) => `<option value="${esc(semester)}" ${scheduleSemester === semester ? "selected" : ""}>${esc(semester)}</option>`)
+    .join("");
+  return `<option value="">全部学期</option>${options}`;
+}
+
+function scheduleInSemester(item) {
+  return !scheduleSemester || item.semester === scheduleSemester;
 }
 
 function recentNotes(limit = 6) {
@@ -949,12 +975,12 @@ function matchWeeks(text) {
 
 function looksLikeLocation(value) {
   const text = String(value || "").trim();
-  return /(?:楼|馆|教室|实验室|操场|体育馆|图书馆|校区)[A-Za-z0-9]|^[A-Za-z]?\d{2,}|线上|腾讯会议|钉钉|zoom/i.test(text);
+  return /(?:楼|馆|教室|实验室|操场|体育馆|图书馆|文体中心|中心|校区)[A-Za-z0-9]|^[A-Za-z]?\d{2,}|线上|腾讯会议|钉钉|zoom/i.test(text);
 }
 
 function extractLocation(value) {
   const text = String(value || "").trim();
-  const building = text.match(/([A-Za-z\u4e00-\u9fa5]*?(?:教学楼|实验楼|综合楼|外语楼|宿舍楼|楼|馆|教室|实验室|图书馆|体育馆|操场)\s*[A-Za-z]?\d{0,4})/);
+  const building = text.match(/([A-Za-z\u4e00-\u9fa5]*?(?:教学楼|实验楼|综合楼|外语楼|宿舍楼|楼|馆|教室|实验室|图书馆|体育馆|操场|文体中心|中心|校区)\s*[A-Za-z]?\d{0,4})/);
   if (building) return building[1].trim();
   const simple = text.match(/[A-Za-z]?\d{2,}/);
   return simple ? simple[0] : "";
@@ -1223,6 +1249,143 @@ function parseScheduleHTML(html) {
   return dedupeCourses(courses);
 }
 
+function detectSemesterFromRows(rows, fileName) {
+  for (const row of rows) {
+    for (const cell of row) {
+      const text = cleanCellText(cell);
+      const matched = text.match(/(20\d{2})\s*(春季|夏季|秋季|冬季)?\s*学期/);
+      if (matched) return `${matched[1]}${matched[2] || ""}学期`;
+    }
+  }
+  const fileMatch = String(fileName || "").match(/(20\d{2}).*?(春季|夏季|秋季|冬季)?\s*学期/);
+  if (fileMatch) return `${fileMatch[1]}${fileMatch[2] || ""}学期`;
+  return "未命名学期";
+}
+
+function parseHitCourseCell(cellText, weekday, startPeriod, endPeriod) {
+  const text = cleanCellText(cellText);
+  if (!text || text === "&nbsp;") return [];
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const rawCourses = [];
+  let current = null;
+  for (const line of lines) {
+    const hasWeeks = /\[[^\]]+\]\s*(单|双)?周/.test(line);
+    const location = extractLocation(line);
+    const isLocationLine = Boolean(location) && (looksLikeLocation(line) || location === line.trim());
+    if (!current || (!hasWeeks && !isLocationLine)) {
+      if (current) rawCourses.push(current);
+      current = { title: line.replace(/\s+/g, " ").trim(), content: line };
+    } else {
+      current.content += "\n" + line;
+    }
+  }
+  if (current) rawCourses.push(current);
+  const results = [];
+  for (const raw of rawCourses) {
+    const title = raw.title;
+    if (!title) continue;
+    const weekMatches = Array.from(raw.content.matchAll(/\[([^\]]+)\]\s*(单|双)?周/g));
+    const weeks = weekMatches
+      .map((match) => `${String(match[1] || "").replace(/[，、]/g, ",").trim()}${match[2] || ""}`)
+      .join(",");
+    const withoutWeeks = raw.content.replace(/\[[^\]]+\]\s*(单|双)?周/g, " ");
+    const location = extractLocation(withoutWeeks);
+    const teacherParts = [];
+    for (const line of raw.content.split("\n").slice(1)) {
+      let cleaned = line.replace(/\[[^\]]+\]\s*(单|双)?周/g, " ");
+      if (location) cleaned = cleaned.replace(location, " ");
+      cleaned = cleaned.replace(/[，,]/g, "，").trim();
+      if (!cleaned) continue;
+      for (const part of cleaned.split("，")) {
+        const name = part.trim().match(/^([\u4e00-\u9fa5·A-Za-z]{1,16})/);
+        if (name && !teacherParts.includes(name[1])) teacherParts.push(name[1]);
+      }
+    }
+    const times = periodRangeTimes(startPeriod, endPeriod);
+    const course = {
+      title,
+      weekday,
+      start: times.start,
+      end: times.end,
+      startPeriod,
+      endPeriod,
+      location,
+      teacher: teacherParts.join("，"),
+      weeks,
+      color: courseColor(title)
+    };
+    const existing = results.find(
+      (item) =>
+        item.title === course.title &&
+        item.location === course.location &&
+        item.teacher === course.teacher &&
+        item.start === course.start &&
+        item.end === course.end
+    );
+    if (existing) {
+      const combined = new Set([...existing.weeks.split(","), ...course.weeks.split(",")].filter(Boolean));
+      existing.weeks = Array.from(combined).join(",");
+    } else {
+      results.push(course);
+    }
+  }
+  return results;
+}
+
+function parseHitXlsRows(rows, fileName) {
+  const semester = detectSemesterFromRows(rows, fileName);
+  let headerIndex = -1;
+  let weekdayCols = [];
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex] || [];
+    const found = {};
+    for (let colIndex = 0; colIndex < row.length; colIndex += 1) {
+      const weekday = weekdayFromText(row[colIndex]);
+      if (weekday >= 0) found[weekday] = colIndex;
+    }
+    if (Object.keys(found).length >= 7) {
+      headerIndex = rowIndex;
+      weekdayCols = found;
+      break;
+    }
+  }
+  const courses = [];
+  if (headerIndex < 0) return { semester, courses };
+  for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex] || [];
+    const label = `${cleanCellText(row[0] || "")} ${cleanCellText(row[1] || "")}`;
+    const matched =
+      label.match(/第\s*(\d{1,2})\s*[,，]\s*(\d{1,2})\s*节/) ||
+      label.match(/第\s*(\d{1,2})\s*[-—–~～至]\s*(\d{1,2})\s*节/) ||
+      label.match(/第\s*(\d{1,2})\s*节/);
+    if (!matched) continue;
+    const startPeriod = Number(matched[1]);
+    const endPeriod = Number(matched[2] || matched[1]);
+    for (let weekday = 0; weekday < 7; weekday += 1) {
+      const colIndex = weekdayCols[weekday];
+      if (colIndex == null) continue;
+      const cell = cleanCellText(row[colIndex]);
+      if (!cell || cell === "&nbsp;") continue;
+      const parsed = parseHitCourseCell(cell, weekday, startPeriod, endPeriod);
+      for (const course of parsed) {
+        course.semester = semester;
+        courses.push(course);
+      }
+    }
+  }
+  return { semester, courses: dedupeCourses(courses) };
+}
+
+function parseXlsSchedule(buffer, fileName) {
+  if (typeof XLSX === "undefined") {
+    return { semester: "", courses: [], error: "缺少表格解析组件" };
+  }
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheetName = workbook.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+  return parseHitXlsRows(rows, fileName);
+}
+
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -1325,7 +1488,7 @@ function parseImportText(text, kind) {
 function renderImportModal() {
   const preview = pendingImport.length
     ? `<div class="import-summary">
-        <strong>解析到 ${pendingImport.length} 条课程</strong>
+        <strong>解析到 ${pendingImport.length} 条课程${pendingImport[0]?.semester ? `（${esc(pendingImport[0].semester)}）` : ""}</strong>
         <span>确认后会合并到现有课表，重复条目自动跳过</span>
       </div>
       <ul class="import-list">
@@ -1337,7 +1500,7 @@ function renderImportModal() {
                 <span class="color-chip ${esc(course.color || "cobalt")}"></span>
                 <span class="import-course">
                   <strong>${esc(course.title)}</strong>
-                  <small>${WEEKDAYS[course.weekday]} · ${esc(course.start)}–${esc(course.end)}${course.location ? " · " + esc(course.location) : ""}${course.teacher ? " · " + esc(course.teacher) : ""}${course.weeks ? " · " + esc(course.weeks) + "周" : ""}</small>
+                  <small>${WEEKDAYS[course.weekday]} · ${esc(course.start)}–${esc(course.end)}${course.semester ? " · " + esc(course.semester) : ""}${course.location ? " · " + esc(course.location) : ""}${course.teacher ? " · " + esc(course.teacher) : ""}${course.weeks ? " · " + esc(course.weeks) + "周" : ""}</small>
                 </span>
               </label>
             </li>`
@@ -1498,6 +1661,7 @@ function confirmImport() {
   }
   let added = 0;
   let skipped = 0;
+  let importedSemester = "";
   for (const box of checked) {
     const course = pendingImport[Number(box.dataset.index)];
     if (!course) continue;
@@ -1513,13 +1677,16 @@ function confirmImport() {
       startPeriod: Number(course.startPeriod) || periodNumberForTime(course.start, "start"),
       endPeriod: Number(course.endPeriod) || periodNumberForTime(course.end, "end"),
       weekday: Number(course.weekday),
+      semester: course.semester || "",
       location: course.location || "",
       teacher: course.teacher || "",
       weeks: course.weeks || "",
       color: course.color || "cobalt"
     });
+    if (!importedSemester && course.semester) importedSemester = course.semester;
     added += 1;
   }
+  if (importedSemester) scheduleSemester = importedSemester;
   scheduleSave();
   closeImport();
   render();
@@ -1749,7 +1916,7 @@ function renderHabits() {
 function renderSchedule() {
   const blocksByDay = WEEKDAYS.map((_, day) =>
     state.schedule
-      .filter((item) => Number(item.weekday) === day && scheduleVisible(item))
+      .filter((item) => Number(item.weekday) === day && scheduleVisible(item) && scheduleInSemester(item))
       .sort((a, b) => parseTime(a.start) - parseTime(b.start))
   );
   const layoutsByDay = blocksByDay.map(layoutDayBlocks);
@@ -1798,6 +1965,10 @@ function renderSchedule() {
       <div class="page-actions">
         <span class="panel-meta">${state.schedule.length} 个固定安排</span>
         <label class="week-picker">
+          <span>学期</span>
+          <select id="semester-filter">${semesterOptions()}</select>
+        </label>
+        <label class="week-picker">
           <span>当前周</span>
           <select id="current-week" aria-label="当前教学周">
             <option value="">未设置</option>
@@ -1833,6 +2004,12 @@ function renderSchedule() {
         </label>
         <label class="field-label">地点
           <input id="course-location" placeholder="例如：教学楼 A301" autocomplete="off">
+        </label>
+      </div>
+      <div class="form-row wide">
+        <label class="field-label">学期
+          <input id="course-semester" list="course-semester-list" value="${esc(scheduleSemester || "")}" placeholder="例如：2026春季学期" autocomplete="off">
+          <datalist id="course-semester-list">${scheduleSemesterList().map((semester) => `<option value="${esc(semester)}"></option>`).join("")}</datalist>
         </label>
       </div>
       <div class="form-actions">
@@ -2002,10 +2179,10 @@ function parseRoomText(text, fallbackDate = "") {
       continue;
     }
     if (!currentKey) continue;
-    const rooms = line.match(/\bG\d{3}\b/gi);
+    const rooms = line.match(/\bG\d{3}\b|(?:[\u4e00-\u9fa5A-Za-z]{1,8})\d{2,4}/gi);
     if (rooms) {
       const unique = new Set(periods[currentKey]);
-      rooms.forEach((room) => unique.add(room.toUpperCase()));
+      rooms.forEach((room) => unique.add(room.replace(/\s+/g, "").toUpperCase()));
       periods[currentKey] = Array.from(unique);
     }
   }
@@ -2135,6 +2312,286 @@ function saveRoomEntry() {
   toast(`已保存 ${formatDate(parsed.date)} 的空教室`);
 }
 
+async function openRoomScreenshot(file) {
+  if (!file || !file.type.startsWith("image/")) {
+    toast("请选择图片文件");
+    return;
+  }
+  const dataUrl = await fileToLocalDataUrl(file);
+  pendingRoomScreenshot = { dataUrl, date: todayISO() };
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.id = "room-shot-modal";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2>截图识别空教室</h2>
+          <p>AI 自动识别后会填入结果，你可以先确认再导入。</p>
+        </div>
+        <button class="btn-icon" data-action="close-room-screenshot" aria-label="关闭">${icon("x")}</button>
+      </div>
+      <img class="room-shot-preview" src="${esc(dataUrl)}" alt="空教室截图预览">
+      <div class="form-row">
+        <label class="field-label">日期
+          <input id="room-shot-date" type="date" value="${todayISO()}">
+        </label>
+        <label class="field-label">状态
+          <span class="panel-meta" id="room-shot-status">等待识别</span>
+        </label>
+      </div>
+      <div class="form-row wide">
+        <label class="field-label">识别结果
+          <textarea id="room-shot-result" rows="10" placeholder="识别完成后自动填入，可手动修正…"></textarea>
+        </label>
+      </div>
+      <div class="form-actions modal-actions">
+        <button class="btn" data-action="close-room-screenshot">取消</button>
+        <button class="btn" data-action="run-room-ai">${icon("refresh")}开始识别</button>
+        <button class="btn btn-primary" data-action="save-room-shot">${icon("save")}确认导入</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.body.classList.add("modal-open");
+}
+
+function closeRoomScreenshot() {
+  const overlay = $("#room-shot-modal");
+  if (overlay) overlay.remove();
+  document.body.classList.remove("modal-open");
+  pendingRoomScreenshot = null;
+}
+
+function loadCanvasFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      canvas.getContext("2d").drawImage(image, 0, 0);
+      resolve(canvas);
+    };
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+function clusterCenters(values, minGap, minSize) {
+  const sorted = Array.from(new Set(values)).sort((a, b) => a - b);
+  const clusters = [];
+  let current = [];
+  for (const value of sorted) {
+    if (current.length && value - current[current.length - 1] > minGap) {
+      clusters.push(current);
+      current = [value];
+    } else {
+      current.push(value);
+    }
+  }
+  if (current.length) clusters.push(current);
+  return clusters
+    .filter((cluster) => cluster.length >= (minSize || 1))
+    .map((cluster) => cluster[Math.floor(cluster.length / 2)]);
+}
+
+function getRoomRowCenters(canvas) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const stripWidth = Math.max(60, Math.round(width * 0.13));
+  const startY = Math.round(height * 0.15);
+  const endY = Math.round(height * 0.98);
+  const data = canvas.getContext("2d").getImageData(0, startY, stripWidth, endY - startY).data;
+  const counts = [];
+  for (let y = 0; y < endY - startY; y += 1) {
+    let dark = 0;
+    for (let x = 0; x < stripWidth; x += 1) {
+      const index = (y * stripWidth + x) * 4;
+      if (data[index] < 120 && data[index + 1] < 120 && data[index + 2] < 120) dark += 1;
+    }
+    counts.push(dark);
+  }
+  const values = [];
+  counts.forEach((count, y) => {
+    if (count > 4) values.push(startY + y);
+  });
+  return clusterCenters(values, 4, 8);
+}
+
+function getOrangeColumnCenters(canvas) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const data = canvas.getContext("2d").getImageData(0, 0, width, height).data;
+  const values = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      if (r > 140 && g < 190 && b < 130 && r - g > 40 && r - b > 50) values.push(x);
+    }
+  }
+  let centers = clusterCenters(values, 6, 8);
+  if (centers.length !== 42 && centers.length > 24) {
+    const first = centers[0];
+    const last = centers[centers.length - 1];
+    centers = Array.from({ length: 42 }, (_, index) => Math.round(first + ((last - first) * index) / 41));
+  }
+  return centers;
+}
+
+function countOrangeAround(imageData, x, y, width, height) {
+  let count = 0;
+  for (let dy = -12; dy <= 12; dy += 1) {
+    for (let dx = -10; dx <= 10; dx += 1) {
+      const px = x + dx;
+      const py = y + dy;
+      if (px < 0 || py < 0 || px >= width || py >= height) continue;
+      const index = (py * width + px) * 4;
+      const r = imageData.data[index];
+      const g = imageData.data[index + 1];
+      const b = imageData.data[index + 2];
+      if (r > 140 && g < 190 && b < 130 && r - g > 40 && r - b > 50) count += 1;
+    }
+  }
+  return count;
+}
+
+async function ocrRoomNamesFromCanvas(canvas) {
+  const width = Math.max(80, Math.round(canvas.width * 0.14));
+  const startY = Math.round(canvas.height * 0.15);
+  const endY = Math.round(canvas.height * 0.98);
+  const crop = document.createElement("canvas");
+  crop.width = width;
+  crop.height = endY - startY;
+  crop.getContext("2d").drawImage(canvas, 0, startY, width, endY - startY, 0, 0, width, endY - startY);
+  const scaled = document.createElement("canvas");
+  scaled.width = width * 2;
+  scaled.height = (endY - startY) * 2;
+  scaled.getContext("2d").drawImage(crop, 0, 0, width, endY - startY, 0, 0, width * 2, (endY - startY) * 2);
+  const response = await fetch(`${aiConfig.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${aiConfig.apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: aiConfig.model,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "逐行输出图片里的教室名，一行一个，不要解释，不要编号。" },
+          { type: "image_url", image_url: { url: scaled.toDataURL("image/jpeg", 0.92) } }
+        ]
+      }]
+    })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error?.message || `HTTP ${response.status}`);
+  const content = String(data?.choices?.[0]?.message?.content || "");
+  return content
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*\d+[.、\s]+/, "").trim())
+    .filter((line) => /[\u4e00-\u9fa5A-Za-z]+\d{2,4}/.test(line));
+}
+
+async function analyzeRoomScreenshot(dataUrl) {
+  const canvas = await loadCanvasFromDataUrl(dataUrl);
+  let rows = getRoomRowCenters(canvas);
+  const columns = getOrangeColumnCenters(canvas);
+  let roomNames = [];
+  try {
+    roomNames = await ocrRoomNamesFromCanvas(canvas);
+  } catch (err) {
+    // Room names can still be edited manually in the preview.
+  }
+  if (roomNames.length && rows.length > roomNames.length) {
+    rows = rows.slice(rows.length - roomNames.length);
+  }
+  const imageData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+  const isOccupied = (rowIndex, colIndex) => {
+    const rowY = rows[rowIndex];
+    const colX = columns[colIndex];
+    if (rowY == null || colX == null) return true;
+    return countOrangeAround(imageData, colX, rowY, canvas.width, canvas.height) > 8;
+  };
+  return { rows, columns, roomNames, isOccupied };
+}
+
+async function recognizeRoomScreenshot() {
+  if (!pendingRoomScreenshot || !aiConfig.apiKey) {
+    toast("请先在设置里填写 AI API Key");
+    return;
+  }
+  const date = $("#room-shot-date")?.value || todayISO();
+  const weekdayIndexValue = weekdayIndex(new Date(`${date}T00:00:00`));
+  const weekday = WEEKDAYS[weekdayIndexValue];
+  const status = $("#room-shot-status");
+  if (status) status.textContent = "识别中…";
+  try {
+    const parsed = await analyzeRoomScreenshot(pendingRoomScreenshot.dataUrl);
+    if (parsed.columns.length < 42) {
+      if (status) status.textContent = "表格不完整";
+      toast("没有识别到完整的 7 天 × 6 时段表格，请放大截图后重试");
+      return;
+    }
+    const periodGroups = ["1-2", "3-4", "5-6", "7-8", "9-10", "11-12"];
+    const lines = [];
+    for (let group = 0; group < 6; group += 1) {
+      const colIndex = weekdayIndexValue * 6 + group;
+      const free = [];
+      for (let rowIndex = 0; rowIndex < parsed.roomNames.length; rowIndex += 1) {
+        if (!parsed.isOccupied(rowIndex, colIndex)) free.push(parsed.roomNames[rowIndex]);
+      }
+      if (free.length) lines.push(`${periodGroups[group]}节：${free.join(" ")}`);
+    }
+    if (!parsed.roomNames.length) {
+      if (status) status.textContent = "教室名识别失败";
+      toast("教室名识别失败，请检查 AI 模型和 Key");
+      return;
+    }
+    const result = $("#room-shot-result");
+    if (result) result.value = lines.join("\n");
+    if (status) status.textContent = `已识别 ${weekday}，请确认`;
+    toast(`已识别 ${weekday}，请确认`);
+  } catch (err) {
+    if (status) status.textContent = "识别失败";
+    toast(`识别失败：${err.message || "请检查 Key 和网络"}`);
+  }
+}
+
+function saveRoomShot() {
+  const date = $("#room-shot-date")?.value || todayISO();
+  const text = $("#room-shot-result")?.value.trim() || "";
+  const parsed = parseRoomText(text, date);
+  if (!Object.keys(parsed.periods).length) {
+    toast("没有识别到有效节次，请修正后再导入");
+    return;
+  }
+  const existing = state.rooms.find((entry) => entry.date === parsed.date);
+  if (existing) {
+    Object.assign(existing, {
+      periods: parsed.periods,
+      sourceText: text,
+      updatedAt: new Date().toISOString()
+    });
+  } else {
+    state.rooms.unshift({
+      id: uid("room"),
+      date: parsed.date,
+      periods: parsed.periods,
+      sourceText: text,
+      createdAt: new Date().toISOString()
+    });
+  }
+  closeRoomScreenshot();
+  scheduleSave();
+  render();
+  toast(`已保存 ${formatDate(parsed.date)} 的空教室`);
+}
+
 function locateRoomTime() {
   const sorted = [...state.rooms].sort((a, b) => b.date.localeCompare(a.date));
   if (!sorted.length) {
@@ -2166,8 +2623,10 @@ function renderRooms() {
       <div class="page-actions">
         <span class="panel-meta">${state.rooms.length} 天记录</span>
         <button class="btn" data-action="locate-room-time">${icon("clock")}定位当前时段</button>
+        <button class="btn btn-primary" data-action="open-room-screenshot">${icon("upload")}截图导入</button>
       </div>
     </div>
+    <input id="room-screenshot" type="file" accept="image/*" hidden>
 
     <div class="form-grid room-editor">
       <div class="form-row">
@@ -2175,7 +2634,7 @@ function renderRooms() {
           <input id="room-import-date" type="date" value="${todayISO()}">
         </label>
         <label class="field-label wide">空教室信息
-          <textarea id="room-import-text" rows="10" placeholder="粘贴“不洗碗工作室”那种空教室文字…"></textarea>
+          <textarea id="room-import-text" rows="10" placeholder="粘贴空教室文字，或用上方截图导入自动识别…"></textarea>
         </label>
       </div>
       <div class="form-actions">
@@ -2212,6 +2671,44 @@ function renderSettings() {
           </label>
         </div>
         <button class="btn btn-primary" data-action="save-settings">${icon("save")}保存</button>
+      </section>
+
+      <section class="settings-row">
+        <div>
+          <h2>账号</h2>
+          ${authSession
+            ? `<p>当前登录：${esc(authSession.user?.email || "已登录")}</p>`
+            : `<label class="field-label">邮箱
+                <input id="account-email" type="email" placeholder="you@example.com" autocomplete="email">
+              </label>
+              <label class="field-label">密码
+                <input id="account-password" type="password" placeholder="至少 6 位" autocomplete="current-password">
+              </label>`}
+        </div>
+        <div class="form-actions">
+          ${authSession
+            ? `<button class="btn btn-danger" data-action="logout-account">${icon("x")}退出登录</button>`
+            : `<button class="btn btn-primary" data-action="login-account">${icon("check")}登录</button>
+               <button class="btn" data-action="register-account">${icon("plus")}注册</button>`}
+        </div>
+      </section>
+
+      <section class="settings-row">
+        <div>
+          <h2>项目</h2>
+          <label class="field-label">新项目名称
+            <input id="project-name" placeholder="例如：班级共享课表" autocomplete="off">
+          </label>
+          <label class="field-label">邀请码
+            <input id="project-code" placeholder="6 位邀请码" autocomplete="off">
+          </label>
+          <div class="project-list" id="project-list">${authSession ? "" : `<span class="panel-meta">登录后可查看项目</span>`}</div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="create-project">${icon("plus")}创建</button>
+          <button class="btn" data-action="join-project">${icon("link")}加入</button>
+          <button class="btn" data-action="refresh-projects">${icon("refresh")}刷新</button>
+        </div>
       </section>
 
       <section class="settings-row">
@@ -2254,6 +2751,24 @@ function renderSettings() {
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" data-action="check-update">${icon("refresh")}检查更新</button>
+        </div>
+      </section>
+
+      <section class="settings-row">
+        <div>
+          <h2>AI 识别</h2>
+          <label class="field-label">接口地址
+            <input id="ai-base-url" value="${esc(aiConfig.baseUrl)}" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" autocomplete="off">
+          </label>
+          <label class="field-label">模型
+            <input id="ai-model" value="${esc(aiConfig.model)}" placeholder="qwen-vl-ocr-latest" autocomplete="off">
+          </label>
+          <label class="field-label">API Key
+            <input id="ai-api-key" type="password" value="${esc(aiConfig.apiKey)}" placeholder="只在你的设备上保存" autocomplete="off">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="save-ai">${icon("save")}保存</button>
         </div>
       </section>
 
@@ -2303,6 +2818,7 @@ function render(scrollToTop = false) {
   if (dockToggle) dockToggle.textContent = state.settings.hideMobileNav ? "展开导航" : "收起导航";
   refreshReminderStatus();
   refreshUpdateStatus();
+  if (currentView === "settings" && authSession) refreshProjectList();
   scheduleRemindersSoon();
 }
 
@@ -2352,6 +2868,64 @@ function readCloudConfig() {
   return { ...DEFAULT_CLOUD_CONFIG };
 }
 
+function readAIConfig() {
+  const defaults = {
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-vl-ocr-latest",
+    apiKey: ""
+  };
+  try {
+    const raw = localStorage.getItem(AI_CONFIG_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        baseUrl: parsed.baseUrl || defaults.baseUrl,
+        model: parsed.model || defaults.model,
+        apiKey: parsed.apiKey || ""
+      };
+    }
+  } catch (err) {
+    // fall through to defaults
+  }
+  return { ...defaults };
+}
+
+function writeAIConfig(config) {
+  try {
+    localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(config));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function readAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.access_token && parsed.user) return parsed;
+  } catch (err) {
+    // fall through
+  }
+  return null;
+}
+
+function writeAuthSession(session) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    authSession = session;
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function clearAuthSession() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  authSession = null;
+}
+
 function writeCloudConfig(config) {
   try {
     localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(config));
@@ -2366,12 +2940,17 @@ function cloudEnabled() {
 }
 
 function cloudHeaders(json = false) {
+  const token = authSession?.access_token || cloudConfig.key;
   const headers = {
     apikey: cloudConfig.key,
-    Authorization: `Bearer ${cloudConfig.key}`
+    Authorization: `Bearer ${token}`
   };
   if (json) headers["Content-Type"] = "application/json";
   return headers;
+}
+
+function cloudRowId() {
+  return currentSpaceId || authSession?.user?.id || "personal-workbench";
 }
 
 function cloudTable() {
@@ -2446,7 +3025,7 @@ function scheduleSave() {
 }
 
 async function loadCloudState() {
-  const res = await fetch(`${cloudTable()}?id=eq.personal-workbench&select=id,revision,state&limit=1`, {
+  const res = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision,state&limit=1`, {
     headers: cloudHeaders()
   });
   if (!res.ok) throw new Error("cloud-load-failed");
@@ -2460,7 +3039,7 @@ async function loadCloudState() {
 
 async function cloudSaveState() {
   try {
-    const check = await fetch(`${cloudTable()}?id=eq.personal-workbench&select=id,revision&limit=1`, {
+    const check = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision&limit=1`, {
       headers: cloudHeaders()
     });
     let remoteRevision = 0;
@@ -2488,7 +3067,7 @@ async function cloudSaveState() {
     };
     let res;
     if (rowExists) {
-      res = await fetch(`${cloudTable()}?id=eq.personal-workbench&revision=eq.${remoteRevision}`, {
+      res = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&revision=eq.${remoteRevision}`, {
         method: "PATCH",
         headers: {
           ...cloudHeaders(true),
@@ -2504,7 +3083,7 @@ async function cloudSaveState() {
           Prefer: "return=representation"
         },
         body: JSON.stringify({
-          id: "personal-workbench",
+          id: cloudRowId(),
           ...payload
         })
       });
@@ -2532,7 +3111,7 @@ async function cloudSaveState() {
 }
 
 async function pollCloudState() {
-  const res = await fetch(`${cloudTable()}?id=eq.personal-workbench&select=id,revision,state&limit=1`, {
+  const res = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision,state&limit=1`, {
     headers: cloudHeaders()
   });
   if (!res.ok) throw new Error("cloud-poll-failed");
@@ -2817,6 +3396,7 @@ function saveCourse() {
         weekday,
         color,
         location,
+        semester: $("#course-semester").value.trim() || item.semester || "",
         teacher: item.teacher || "",
         weeks: item.weeks || ""
       });
@@ -2830,6 +3410,7 @@ function saveCourse() {
       weekday,
       color,
       location,
+      semester: $("#course-semester").value.trim() || "",
       teacher: "",
       weeks: ""
     });
@@ -2850,6 +3431,7 @@ function startEditCourse(id) {
   $("#course-end").value = item.end;
   $("#course-location").value = item.location || "";
   $("#course-color").value = item.color || "cobalt";
+  $("#course-semester").value = item.semester || "";
   $("#course-title").focus();
 }
 
@@ -3011,6 +3593,277 @@ function saveSettings() {
   toast("设置已保存");
 }
 
+function saveAIConfig() {
+  aiConfig = {
+    baseUrl: $("#ai-base-url").value.trim().replace(/\/+$/, "") || "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: $("#ai-model").value.trim() || "qwen-vl-ocr-latest",
+    apiKey: $("#ai-api-key").value.trim()
+  };
+  writeAIConfig(aiConfig);
+  render();
+  toast(aiConfig.apiKey ? "AI 识别已保存" : "AI 配置已保存，Key 留空则不可用");
+}
+
+async function migratePersonalRowToUser() {
+  const anonHeaders = {
+    apikey: cloudConfig.key,
+    Authorization: `Bearer ${cloudConfig.key}`
+  };
+  const oldRes = await fetch(`${cloudTable()}?id=eq.personal-workbench&select=revision,state&limit=1`, {
+    headers: anonHeaders
+  });
+  const oldRows = oldRes.ok ? await oldRes.json() : [];
+  const oldRow = Array.isArray(oldRows) ? oldRows[0] : null;
+  if (!oldRow) return;
+  const userRes = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id&limit=1`, {
+    headers: anonHeaders
+  });
+  const userRows = userRes.ok ? await userRes.json() : [];
+  if (!Array.isArray(userRows) || userRows.length) return;
+  await fetch(cloudTable(), {
+    method: "POST",
+    headers: {
+      ...anonHeaders,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal"
+    },
+    body: JSON.stringify({
+      id: cloudRowId(),
+      revision: Number(oldRow.revision) || 0,
+      state: oldRow.state || {},
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+
+async function loginAccount() {
+  const email = $("#account-email")?.value.trim();
+  const password = $("#account-password")?.value;
+  if (!email || !password) {
+    toast("请输入邮箱和密码");
+    return;
+  }
+  try {
+    const res = await fetch(`${cloudConfig.url}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        apikey: cloudConfig.key,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.access_token) throw new Error(data?.error_description || data?.error || "登录失败");
+    writeAuthSession({ access_token: data.access_token, user: data.user });
+    currentSpaceId = data.user.id;
+    await migratePersonalRowToUser();
+    await loadState();
+    render();
+    toast("登录成功");
+  } catch (err) {
+    toast(err.message || "登录失败");
+  }
+}
+
+async function registerAccount() {
+  const email = $("#account-email")?.value.trim();
+  const password = $("#account-password")?.value;
+  if (!email || !password) {
+    toast("请输入邮箱和密码");
+    return;
+  }
+  if (password.length < 6) {
+    toast("密码至少 6 位");
+    return;
+  }
+  try {
+    const res = await fetch(`${cloudConfig.url}/auth/v1/signup`, {
+      method: "POST",
+      headers: {
+        apikey: cloudConfig.key,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error_description || data?.error || "注册失败");
+    if (data.access_token) {
+      writeAuthSession({ access_token: data.access_token, user: data.user });
+      currentSpaceId = data.user.id;
+      await migratePersonalRowToUser();
+      await loadState();
+      render();
+      toast("注册成功");
+    } else {
+      toast("注册成功，请查收邮箱完成验证后登录");
+    }
+  } catch (err) {
+    toast(err.message || "注册失败");
+  }
+}
+
+async function logoutAccount() {
+  try {
+    await saveNow();
+  } catch (err) {
+    // keep local data even if saving fails
+  }
+  clearAuthSession();
+  currentSpaceId = "personal-workbench";
+  await loadState();
+  render();
+  toast("已退出登录");
+}
+
+function emptyState() {
+  return {
+    settings: { name: "", title: "我的工作台" },
+    focus: {},
+    tasks: [],
+    habits: [],
+    checks: [],
+    schedule: [],
+    notes: [],
+    assets: [],
+    rooms: [],
+    reviews: []
+  };
+}
+
+function makeInviteCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let index = 0; index < 6; index += 1) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+async function ensureProjectState(projectId) {
+  const rowId = `project:${projectId}`;
+  const check = await fetch(`${cloudTable()}?id=eq.${rowId}&select=id&limit=1`, {
+    headers: cloudHeaders()
+  });
+  const rows = check.ok ? await check.json() : [];
+  if (Array.isArray(rows) && rows.length) return;
+  await fetch(cloudTable(), {
+    method: "POST",
+    headers: {
+      ...cloudHeaders(true),
+      Prefer: "return=minimal"
+    },
+    body: JSON.stringify({
+      id: rowId,
+      revision: 0,
+      state: emptyState(),
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+
+async function createProject() {
+  if (!authSession) {
+    toast("请先登录");
+    return;
+  }
+  const name = $("#project-name")?.value.trim();
+  if (!name) {
+    toast("请输入项目名称");
+    return;
+  }
+  try {
+    const res = await fetch(`${cloudConfig.url}/rest/v1/projects`, {
+      method: "POST",
+      headers: {
+        ...cloudHeaders(true),
+        Prefer: "return=representation"
+      },
+      body: JSON.stringify({
+        name,
+        owner_id: authSession.user.id,
+        invite_code: makeInviteCode()
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || "创建项目失败");
+    const project = Array.isArray(data) ? data[0] : data;
+    await ensureProjectState(project.id);
+    await saveNow();
+    currentSpaceId = `project:${project.id}`;
+    Object.assign(state, emptyState());
+    render();
+    toast(`已创建项目 ${project.name}`);
+  } catch (err) {
+    toast(err.message || "创建项目失败");
+  }
+}
+
+async function joinProject() {
+  if (!authSession) {
+    toast("请先登录");
+    return;
+  }
+  const code = $("#project-code")?.value.trim().toUpperCase();
+  if (!code) {
+    toast("请输入邀请码");
+    return;
+  }
+  try {
+    const res = await fetch(`${cloudConfig.url}/rest/v1/rpc/join_project_by_code`, {
+      method: "POST",
+      headers: {
+        ...cloudHeaders(true),
+        Prefer: "return=representation"
+      },
+      body: JSON.stringify({ code })
+    });
+    const project = await res.json();
+    if (!res.ok || !project?.id) throw new Error("邀请码不存在");
+    await ensureProjectState(project.id);
+    await saveNow();
+    currentSpaceId = `project:${project.id}`;
+    await loadState();
+    render();
+    toast(`已加入项目 ${project.name}`);
+  } catch (err) {
+    toast(err.message || "加入项目失败");
+  }
+}
+
+async function refreshProjectList() {
+  const list = $("#project-list");
+  if (!list) return;
+  if (!authSession) {
+    list.innerHTML = `<span class="panel-meta">登录后可查看项目</span>`;
+    return;
+  }
+  try {
+    const res = await fetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code&order=created_at`, {
+      headers: cloudHeaders()
+    });
+    const rows = await res.json();
+    if (!res.ok) throw new Error("读取项目失败");
+    list.innerHTML = (Array.isArray(rows) ? rows : [])
+      .map((project) => `<button class="btn" data-action="switch-project" data-id="${esc(project.id)}">${esc(project.name)}</button>`)
+      .join(" ") || `<span class="panel-meta">还没有项目</span>`;
+  } catch (err) {
+    list.innerHTML = `<span class="panel-meta">${esc(err.message || "读取项目失败")}</span>`;
+  }
+}
+
+async function switchProject(id) {
+  if (!id) return;
+  try {
+    await saveNow();
+  } catch (err) {
+    // keep going even if save fails
+  }
+  currentSpaceId = `project:${id}`;
+  await loadState();
+  render();
+  toast("已切换项目");
+}
+
 function saveCloud() {
   const url = $("#cloud-url").value.trim().replace(/\/+$/, "");
   const key = $("#cloud-key").value.trim();
@@ -3170,6 +4023,13 @@ function handleClick(event) {
   }
   if (action === "open-import") return openImport();
   if (action === "close-import") return closeImport();
+  if (action === "open-room-screenshot") {
+    $("#room-screenshot").click();
+    return;
+  }
+  if (action === "close-room-screenshot") return closeRoomScreenshot();
+  if (action === "run-room-ai") return recognizeRoomScreenshot();
+  if (action === "save-room-shot") return saveRoomShot();
   if (action === "open-image") return openImageViewer(el.dataset.url);
   if (action === "close-image-viewer") return closeImageViewer();
   if (action === "zoom-image") return zoomImageViewer(Number(el.dataset.step));
@@ -3182,10 +4042,14 @@ function handleClick(event) {
     return;
   }
   if (action === "parse-import") {
-    const textarea = $("#import-text");
-    const raw = importTab === "file" ? importFileText : textarea ? textarea.value : importDraft;
-    pendingImport = parseImportText(raw, importTab === "csv" ? "csv" : "html");
-    if (!pendingImport.length) toast("没有识别到课程，请确认复制的是课表表格或 CSV 格式");
+    if (importTab === "file" && !importFileText) {
+      if (!pendingImport.length) toast("请先选择课表文件");
+    } else {
+      const textarea = $("#import-text");
+      const raw = importTab === "file" ? importFileText : textarea ? textarea.value : importDraft;
+      pendingImport = parseImportText(raw, importTab === "csv" ? "csv" : "html");
+      if (!pendingImport.length) toast("没有识别到课程，请确认复制的是课表表格或 CSV 格式");
+    }
     rerenderImport();
     return;
   }
@@ -3236,6 +4100,14 @@ function handleClick(event) {
   if (action === "edit-review") return startEditReview(id);
   if (action === "delete-review") return deleteReview(id);
   if (action === "save-settings") return saveSettings();
+  if (action === "save-ai") return saveAIConfig();
+  if (action === "login-account") return loginAccount();
+  if (action === "register-account") return registerAccount();
+  if (action === "logout-account") return logoutAccount();
+  if (action === "create-project") return createProject();
+  if (action === "join-project") return joinProject();
+  if (action === "refresh-projects") return refreshProjectList();
+  if (action === "switch-project") return switchProject(id);
   if (action === "save-cloud") return saveCloud();
   if (action === "clear-cloud") return clearCloud();
   if (action === "enable-notifications") return enableNotifications();
@@ -3285,6 +4157,21 @@ document.addEventListener("change", async (event) => {
   if (event.target.id === "import-file") {
     const file = event.target.files[0];
     if (!file) return;
+    const lowerName = file.name.toLowerCase();
+    const buffer = await file.arrayBuffer();
+    const signature = new Uint8Array(buffer.slice(0, 8));
+    const isOle = signature[0] === 0xd0 && signature[1] === 0xcf && signature[2] === 0x11 && signature[3] === 0xe0;
+    if ((lowerName.endsWith(".xls") && isOle) || lowerName.endsWith(".xlsx")) {
+      const parsed = parseXlsSchedule(buffer, file.name);
+      importFileText = "";
+      importFileName = file.name;
+      pendingImport = parsed.courses || [];
+      if (parsed.semester) scheduleSemester = parsed.semester;
+      rerenderImport();
+      if (parsed.error) toast(parsed.error);
+      else if (!pendingImport.length) toast("没有识别到课程，请确认是学生课表文件");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       importFileText = String(reader.result || "");
@@ -3299,9 +4186,20 @@ document.addEventListener("change", async (event) => {
     reader.readAsText(file);
     return;
   }
+  if (event.target.id === "room-screenshot") {
+    const file = event.target.files[0];
+    if (file) openRoomScreenshot(file);
+    event.target.value = "";
+    return;
+  }
   if (event.target.id === "current-week") {
     state.settings.currentWeek = event.target.value ? Number(event.target.value) : 0;
     scheduleSave();
+    render();
+    return;
+  }
+  if (event.target.id === "semester-filter") {
+    scheduleSemester = event.target.value;
     render();
     return;
   }
