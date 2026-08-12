@@ -2545,6 +2545,9 @@ function saveTask() {
   const remindRaw = $("#task-remind").value;
   const remind = time && remindRaw !== "none" ? Number(remindRaw) : null;
   const taskFields = { title, date, priority, time, remind };
+  if (time && remind != null && localDateMs(date, time) <= Date.now()) {
+    toast("这个时间已经过了，不会发提醒");
+  }
   if (editingTaskId) {
     const task = state.tasks.find((item) => item.id === editingTaskId);
     if (task) Object.assign(task, taskFields);
@@ -2599,6 +2602,9 @@ function saveHabit() {
   const remindRaw = $("#habit-remind").value;
   const remind = time && remindRaw !== "none" ? Number(remindRaw) : null;
   const habitFields = { name, icon: selectedHabitIcon, time, remind };
+  if (time && remind != null && localDateMs(todayISO(), time) <= Date.now()) {
+    toast("今天的提醒时间已过，明天开始提醒");
+  }
   if (editingHabitId) {
     const habit = state.habits.find((item) => item.id === editingHabitId);
     if (habit) Object.assign(habit, habitFields);
