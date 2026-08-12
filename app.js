@@ -445,6 +445,20 @@ async function testNotification() {
     return;
   }
   try {
+    const registration = await navigator.serviceWorker?.ready;
+    if (registration) {
+      await registration.showNotification("测试提醒", {
+        body: "你的工作台通知已经接通",
+        icon: "./assets/icons/icon-192.png",
+        tag: `${REMINDER_TAG}-test`
+      });
+      toast("测试通知已发送");
+      return;
+    }
+  } catch (err) {
+    // Fall back to a page notification below.
+  }
+  try {
     new Notification("测试提醒", {
       body: "你的工作台通知已经接通",
       icon: "./assets/icons/icon-192.png"
