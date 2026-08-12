@@ -257,6 +257,20 @@ function collectReminders() {
   return items.sort((a, b) => a.at - b.at);
 }
 
+function countExpiredReminders() {
+  const now = Date.now();
+  let count = 0;
+  for (const task of state.tasks) {
+    if (task.done || !task.time || task.remind == null) continue;
+    if (localDateMs(task.date || todayISO(), task.time) <= now) count += 1;
+  }
+  for (const habit of state.habits) {
+    if (!habit.time || habit.remind == null) continue;
+    if (localDateMs(todayISO(), habit.time) <= now) count += 1;
+  }
+  return count;
+}
+
 function clearWebReminderTimers() {
   webReminderQueue = [];
   if (webReminderWatchTimer) {
@@ -287,6 +301,8 @@ function startWebReminderWatcher() {
 async function scheduleReminders() {
   clearWebReminderTimers();
   const reminders = collectReminders();
+  const expiredCount = countExpiredReminders();
+  const expiredText = expiredCount ? `，${expiredCount} 条时间已过未安排` : "";
   const native = isNativeApp() && window.Capacitor?.Plugins?.LocalNotifications;
   if (native) {
     try {
@@ -307,7 +323,7 @@ async function scheduleReminders() {
           }))
         });
       }
-      reminderStatusText = `已安排 ${reminders.length} 条提醒`;
+      reminderStatusText = `已安排 ${reminders.length} 条提醒${expiredText}`;
       refreshReminderStatus();
       return;
     } catch (err) {
@@ -334,7 +350,7 @@ async function scheduleReminders() {
           showTrigger: new TimestampTrigger(item.at)
         });
       }
-      reminderStatusText = `已安排 ${reminders.length} 条提醒`;
+      reminderStatusText = `已安排 ${reminders.length} 条提醒${expiredText}`;
       refreshReminderStatus();
       return;
     }
@@ -343,7 +359,7 @@ async function scheduleReminders() {
   }
   webReminderQueue = reminders;
   startWebReminderWatcher();
-  reminderStatusText = `已安排 ${reminders.length} 条提醒（打开时生效）`;
+  reminderStatusText = `已安排 ${reminders.length} 条提醒${expiredText}（打开时生效）`;
   refreshReminderStatus();
 }
 
