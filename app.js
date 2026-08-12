@@ -43,6 +43,7 @@ let cloudConfig = readCloudConfig();
 let notificationEnabled = localStorage.getItem("workbench-notification-enabled") === "1";
 let webReminderWatchTimer = null;
 let webReminderQueue = [];
+let reminderStatusText = "等待安排";
 const REMINDER_TAG = "workbench-reminder";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -212,6 +213,13 @@ function notificationStatusText() {
   return "未开启";
 }
 
+function refreshReminderStatus() {
+  const status = $("#notification-status");
+  if (status) status.textContent = notificationStatusText();
+  const detail = $("#notification-detail");
+  if (detail) detail.textContent = reminderStatusText;
+}
+
 function collectReminders() {
   const items = [];
   const now = Date.now();
@@ -293,17 +301,26 @@ async function scheduleReminders() {
             title: item.title,
             body: item.body,
             schedule: { at: new Date(item.at), allowWhileIdle: true },
+            channelId: "default",
             iconColor: "#D95F7E",
             smallIcon: "ic_stat_icon_config_sample"
           }))
         });
       }
+      reminderStatusText = `已安排 ${reminders.length} 条提醒`;
+      refreshReminderStatus();
       return;
     } catch (err) {
+      reminderStatusText = `系统通知失败：${err.message || "未知错误"}`;
+      refreshReminderStatus();
       // Fall back to web notifications when native scheduling fails.
     }
   }
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (!("Notification" in window) || Notification.permission !== "granted") {
+    reminderStatusText = "通知未开启";
+    refreshReminderStatus();
+    return;
+  }
   try {
     const registration = await navigator.serviceWorker?.ready;
     if (registration && "showTrigger" in Notification.prototype && "TimestampTrigger" in window) {
@@ -317,6 +334,8 @@ async function scheduleReminders() {
           showTrigger: new TimestampTrigger(item.at)
         });
       }
+      reminderStatusText = `已安排 ${reminders.length} 条提醒`;
+      refreshReminderStatus();
       return;
     }
   } catch (err) {
@@ -324,6 +343,8 @@ async function scheduleReminders() {
   }
   webReminderQueue = reminders;
   startWebReminderWatcher();
+  reminderStatusText = `已安排 ${reminders.length} 条提醒（打开时生效）`;
+  refreshReminderStatus();
 }
 
 function scheduleRemindersSoon() {
@@ -374,6 +395,25 @@ async function enableNotifications() {
   }
 }
 
+async function refreshNotificationPermission() {
+  const native = isNativeApp() && window.Capacitor?.Plugins?.LocalNotifications;
+  if (native) {
+    try {
+      const permission = await native.checkPermissions();
+      if (permission?.display === "granted") {
+        notificationEnabled = true;
+        localStorage.setItem("workbench-notification-enabled", "1");
+      }
+    } catch (err) {
+      // Keep the last known state when permission can't be checked.
+    }
+  } else if ("Notification" in window && Notification.permission === "granted") {
+    notificationEnabled = true;
+    localStorage.setItem("workbench-notification-enabled", "1");
+  }
+  refreshReminderStatus();
+}
+
 async function testNotification() {
   const native = isNativeApp() && window.Capacitor?.Plugins?.LocalNotifications;
   if (native) {
@@ -384,6 +424,7 @@ async function testNotification() {
           title: "测试提醒",
           body: "你的工作台通知已经接通",
           schedule: { at: new Date(Date.now() + 1000), allowWhileIdle: true },
+          channelId: "default",
           iconColor: "#D95F7E",
           smallIcon: "ic_stat_icon_config_sample"
         }]
@@ -2049,10 +2090,12 @@ function renderSettings() {
         <div>
           <h2>提醒通知</h2>
           <span class="panel-meta" id="notification-status">${notificationStatusText()}</span>
+          <span class="panel-meta" id="notification-detail">${esc(reminderStatusText)}</span>
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" data-action="enable-notifications">${icon("check")}开启通知</button>
           <button class="btn" data-action="test-notification">${icon("clock")}测试提醒</button>
+          <button class="btn" data-action="resync-notifications">${icon("refresh")}重新安排</button>
         </div>
       </section>
 
@@ -2100,8 +2143,7 @@ function render(scrollToTop = false) {
   document.body.classList.toggle("dock-hidden", Boolean(state.settings.hideMobileNav));
   const dockToggle = $("#dock-toggle");
   if (dockToggle) dockToggle.textContent = state.settings.hideMobileNav ? "展开导航" : "收起导航";
-  const notificationStatus = $("#notification-status");
-  if (notificationStatus) notificationStatus.textContent = notificationStatusText();
+  refreshReminderStatus();
   scheduleRemindersSoon();
 }
 
@@ -3033,6 +3075,13 @@ function handleClick(event) {
   if (action === "clear-cloud") return clearCloud();
   if (action === "enable-notifications") return enableNotifications();
   if (action === "test-notification") return testNotification();
+  if (action === "resync-notifications") {
+    scheduleReminders().then(() => {
+      render();
+      toast("提醒已重新安排");
+    });
+    return;
+  }
   if (action === "toggle-dock") return toggleDock();
   if (action === "save-focus") return saveFocus();
   if (action === "load-demo") return loadDemo();
@@ -3164,3 +3213,4 @@ initLaunchCover();
 scheduleDayRefresh();
 loadState();
 startPolling();
+refreshNotificationPermission();
