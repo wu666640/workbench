@@ -45,7 +45,7 @@ let webReminderWatchTimer = null;
 let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const HABIT_ICONS = ["water", "book", "walk", "sleep", "diet", "focus"];
