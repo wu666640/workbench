@@ -635,6 +635,7 @@ textarea:focus {
   color: var(--faint);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .priority {
@@ -789,6 +790,7 @@ textarea:focus {
   color: var(--faint);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .week-dots {
