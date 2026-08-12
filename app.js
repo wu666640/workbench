@@ -44,8 +44,10 @@ let notificationEnabled = localStorage.getItem("workbench-notification-enabled")
 let webReminderWatchTimer = null;
 let webReminderQueue = [];
 let reminderStatusText = "等待安排";
+let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.1.2";
+const GITHUB_REPO = "wu666640/workbench";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const HABIT_ICONS = ["water", "book", "walk", "sleep", "diet", "focus"];
@@ -483,6 +485,103 @@ async function testNotification() {
     toast("测试通知已发送");
   } catch (err) {
     toast("浏览器通知被阻止，请检查系统通知设置");
+  }
+}
+
+function refreshUpdateStatus() {
+  const status = $("#update-status");
+  if (status) status.textContent = updateStatusText;
+}
+
+function versionParts(value) {
+  return String(value || "")
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => Number(part) || 0);
+}
+
+function isNewerVersion(latest, current) {
+  const left = versionParts(latest);
+  const right = versionParts(current);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const a = left[index] || 0;
+    const b = right[index] || 0;
+    if (a > b) return true;
+    if (a < b) return false;
+  }
+  return false;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function checkForUpdate() {
+  updateStatusText = "正在检查更新…";
+  refreshUpdateStatus();
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (!res.ok) throw new Error("check-failed");
+    const release = await res.json();
+    const tag = String(release.tag_name || "").replace(/^v/i, "");
+    const asset = (release.assets || []).find((item) => /workbench-android-.*\.apk/i.test(item.name || ""));
+    const downloadUrl = asset?.browser_download_url || release.html_url;
+    const announcement = String(release.body || "").trim();
+    if (!isNewerVersion(tag, APP_VERSION)) {
+      updateStatusText = "已是最新版本";
+      refreshUpdateStatus();
+      toast("已是最新版本");
+      return;
+    }
+    updateStatusText = `发现新版本 ${tag}`;
+    refreshUpdateStatus();
+    const prompt = `发现新版本 ${tag}，是否现在下载安装？${announcement ? `\n\n更新公告：\n${announcement}` : ""}`;
+    if (!confirm(prompt)) {
+      updateStatusText = `发现新版本 ${tag}，未下载`;
+      refreshUpdateStatus();
+      return;
+    }
+    const native = isNativeApp() && window.Capacitor?.Plugins?.Filesystem && window.Capacitor?.Plugins?.FileOpener;
+    if (!native) {
+      window.open(downloadUrl, "_blank");
+      updateStatusText = "请在浏览器中下载安装";
+      refreshUpdateStatus();
+      return;
+    }
+    updateStatusText = `正在下载 ${tag}…`;
+    refreshUpdateStatus();
+    const apkResponse = await fetch(downloadUrl);
+    if (!apkResponse.ok) throw new Error("download-failed");
+    const buffer = await apkResponse.arrayBuffer();
+    const fileName = `workbench-update-${tag}.apk`;
+    const Filesystem = window.Capacitor.Plugins.Filesystem;
+    const writeResult = await Filesystem.writeFile({
+      path: fileName,
+      data: arrayBufferToBase64(buffer),
+      directory: "CACHE"
+    });
+    const filePath = writeResult?.uri || (await Filesystem.getUri({ path: fileName, directory: "CACHE" })).uri;
+    updateStatusText = "已下载，正在打开安装…";
+    refreshUpdateStatus();
+    await window.Capacitor.Plugins.FileOpener.open({
+      filePath,
+      contentType: "application/vnd.android.package-archive"
+    });
+    updateStatusText = "已开始安装";
+    refreshUpdateStatus();
+    toast("已开始安装");
+  } catch (err) {
+    updateStatusText = "检查更新失败";
+    refreshUpdateStatus();
+    toast("检查更新失败，请重试");
   }
 }
 
@@ -2149,6 +2248,17 @@ function renderSettings() {
 
       <section class="settings-row">
         <div>
+          <h2>版本更新</h2>
+          <span class="panel-meta">当前版本 ${APP_VERSION}</span>
+          <span class="panel-meta" id="update-status">${esc(updateStatusText)}</span>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="check-update">${icon("refresh")}检查更新</button>
+        </div>
+      </section>
+
+      <section class="settings-row">
+        <div>
           <h2>数据</h2>
           <p>示例数据用于看看工作台长什么样；清空会把任务、习惯、课表、记录和复盘都重置。</p>
         </div>
@@ -2192,6 +2302,7 @@ function render(scrollToTop = false) {
   const dockToggle = $("#dock-toggle");
   if (dockToggle) dockToggle.textContent = state.settings.hideMobileNav ? "展开导航" : "收起导航";
   refreshReminderStatus();
+  refreshUpdateStatus();
   scheduleRemindersSoon();
 }
 
@@ -3129,6 +3240,7 @@ function handleClick(event) {
   if (action === "clear-cloud") return clearCloud();
   if (action === "enable-notifications") return enableNotifications();
   if (action === "test-notification") return testNotification();
+  if (action === "check-update") return checkForUpdate();
   if (action === "resync-notifications") {
     scheduleReminders().then(() => {
       render();
