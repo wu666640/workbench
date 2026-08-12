@@ -24,6 +24,7 @@ let currentView = "today";
 let taskFilter = "today";
 let mobileDay = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
 let editingTaskId = null;
+let editingHabitId = null;
 let editingCourseId = null;
 let editingReviewId = null;
 let selectedHabitIcon = "water";
@@ -39,6 +40,10 @@ let syncStatus = "connecting";
 let saveTimer = null;
 let lastLocalStorageWarning = 0;
 let cloudConfig = readCloudConfig();
+let notificationEnabled = localStorage.getItem("workbench-notification-enabled") === "1";
+let webReminderWatchTimer = null;
+let webReminderQueue = [];
+const REMINDER_TAG = "workbench-reminder";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const HABIT_ICONS = ["water", "book", "walk", "sleep", "diet", "focus"];
@@ -144,6 +149,262 @@ function timeLabel(minutes) {
   return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 }
 
+function remindLabel(minutes) {
+  const value = Number(minutes);
+  if (value === 0) return "准时";
+  if (value % 1440 === 0) return `${value / 1440} 天`;
+  if (value % 60 === 0) return `${value / 60} 小时`;
+  return `${value} 分钟`;
+}
+
+function reminderOptions(selected) {
+  const current = selected == null ? "none" : String(selected);
+  const options = [
+    ["none", "不提醒"],
+    ["0", "准时提醒"],
+    ["5", "提前 5 分钟"],
+    ["10", "提前 10 分钟"],
+    ["15", "提前 15 分钟"],
+    ["30", "提前 30 分钟"],
+    ["60", "提前 1 小时"],
+    ["120", "提前 2 小时"],
+    ["1440", "提前 1 天"]
+  ];
+  return options
+    .map(([value, label]) => `<option value="${value}" ${current === value ? "selected" : ""}>${label}</option>`)
+    .join("");
+}
+
+function reminderMeta(item) {
+  if (!item.time || item.remind == null) return "";
+  return `${item.time} · 提前 ${remindLabel(item.remind)}提醒`;
+}
+
+function localDateMs(dateISO, time) {
+  const [hours, minutes] = String(time || "").split(":").map(Number);
+  const date = new Date(`${dateISO}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return 0;
+  date.setHours(hours || 0, minutes || 0, 0, 0);
+  return date.getTime();
+}
+
+function reminderId(value) {
+  let hash = 0;
+  for (const char of String(value)) {
+    hash = ((hash << 5) - hash + char.codePointAt(0)) >>> 0;
+  }
+  return (hash % 2000000000) + 1;
+}
+
+function isNativeApp() {
+  return Boolean(
+    window.Capacitor &&
+    window.Capacitor.isNativePlatform &&
+    window.Capacitor.isNativePlatform()
+  );
+}
+
+function notificationStatusText() {
+  if (isNativeApp()) return notificationEnabled ? "已开启" : "未开启";
+  if (!("Notification" in window)) return "浏览器不支持";
+  if (Notification.permission === "granted") return "已开启";
+  if (Notification.permission === "denied") return "已拒绝";
+  return "未开启";
+}
+
+function collectReminders() {
+  const items = [];
+  const now = Date.now();
+  for (const task of state.tasks) {
+    if (task.done || !task.time || task.remind == null) continue;
+    const date = task.date || todayISO();
+    const at = localDateMs(date, task.time) - Number(task.remind) * 60000;
+    if (at > now) {
+      items.push({
+        id: `task-${task.id}`,
+        title: task.title,
+        body: `待办提醒 · ${task.time}`,
+        at
+      });
+    }
+  }
+  for (const habit of state.habits) {
+    if (!habit.time || habit.remind == null) continue;
+    for (let day = 0; day < 7; day += 1) {
+      const cursor = new Date();
+      cursor.setDate(cursor.getDate() + day);
+      const dateISO = isoFor(cursor);
+      if (day === 0 && isDoneOn(dateISO, habit.history)) continue;
+      const at = localDateMs(dateISO, habit.time) - Number(habit.remind) * 60000;
+      if (at > now) {
+        items.push({
+          id: `habit-${habit.id}-${dateISO}`,
+          title: habit.name,
+          body: `习惯提醒 · ${habit.time}`,
+          at
+        });
+      }
+    }
+  }
+  return items.sort((a, b) => a.at - b.at);
+}
+
+function clearWebReminderTimers() {
+  webReminderQueue = [];
+  if (webReminderWatchTimer) {
+    clearInterval(webReminderWatchTimer);
+    webReminderWatchTimer = null;
+  }
+}
+
+function fireDueWebReminders() {
+  const now = Date.now();
+  webReminderQueue = webReminderQueue.filter((item) => {
+    if (item.at > now) return true;
+    new Notification(item.title, {
+      body: item.body,
+      icon: "./assets/icons/icon-192.png",
+      tag: REMINDER_TAG
+    });
+    return false;
+  });
+}
+
+function startWebReminderWatcher() {
+  if (webReminderWatchTimer) return;
+  fireDueWebReminders();
+  webReminderWatchTimer = setInterval(fireDueWebReminders, 20000);
+}
+
+async function scheduleReminders() {
+  clearWebReminderTimers();
+  const reminders = collectReminders();
+  const native = isNativeApp() && window.Capacitor?.Plugins?.LocalNotifications;
+  if (native) {
+    try {
+      const pending = await native.getPending();
+      if (pending?.notifications?.length) {
+        await native.cancel({ notifications: pending.notifications });
+      }
+      if (reminders.length) {
+        await native.schedule({
+          notifications: reminders.map((item) => ({
+            id: reminderId(item.id),
+            title: item.title,
+            body: item.body,
+            schedule: { at: new Date(item.at), allowWhileIdle: true },
+            iconColor: "#D95F7E",
+            smallIcon: "ic_stat_icon_config_sample"
+          }))
+        });
+      }
+      return;
+    } catch (err) {
+      // Fall back to web notifications when native scheduling fails.
+    }
+  }
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const registration = await navigator.serviceWorker?.ready;
+    if (registration && "showTrigger" in Notification.prototype && "TimestampTrigger" in window) {
+      const existing = await registration.getNotifications({ tag: REMINDER_TAG });
+      existing.forEach((notification) => notification.close());
+      for (const item of reminders) {
+        registration.showNotification(item.title, {
+          body: item.body,
+          tag: `${REMINDER_TAG}-${reminderId(item.id)}`,
+          icon: "./assets/icons/icon-192.png",
+          showTrigger: new TimestampTrigger(item.at)
+        });
+      }
+      return;
+    }
+  } catch (err) {
+    // Use an in-page watcher when the browser cannot schedule via service worker.
+  }
+  webReminderQueue = reminders;
+  startWebReminderWatcher();
+}
+
+function scheduleRemindersSoon() {
+  clearTimeout(scheduleRemindersSoon.timer);
+  scheduleRemindersSoon.timer = setTimeout(() => scheduleReminders(), 350);
+}
+
+async function enableNotifications() {
+  const native = isNativeApp() && window.Capacitor?.Plugins?.LocalNotifications;
+  if (native) {
+    try {
+      const permission = await native.requestPermissions();
+      if (permission?.display !== "granted") {
+        toast("通知权限未开启，请到系统设置允许");
+        return;
+      }
+      const exact = await native.checkExactNotificationSetting();
+      if (exact?.exact_alarm === "denied") {
+        try {
+          await native.changeExactNotificationSetting();
+        } catch (err) {
+          // The user can still receive reminders with inexact timing.
+        }
+      }
+      notificationEnabled = true;
+      localStorage.setItem("workbench-notification-enabled", "1");
+      await scheduleReminders();
+      render();
+      toast("通知已开启");
+    } catch (err) {
+      toast("通知开启失败，请重试");
+    }
+    return;
+  }
+  if (!("Notification" in window)) {
+    toast("当前浏览器不支持通知");
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission === "granted") {
+    notificationEnabled = true;
+    localStorage.setItem("workbench-notification-enabled", "1");
+    await scheduleReminders();
+    render();
+    toast("通知已开启");
+  } else {
+    toast("通知权限未开启");
+  }
+}
+
+async function testNotification() {
+  const native = isNativeApp() && window.Capacitor?.Plugins?.LocalNotifications;
+  if (native) {
+    try {
+      await native.schedule({
+        notifications: [{
+          id: 999900001,
+          title: "测试提醒",
+          body: "你的工作台通知已经接通",
+          schedule: { at: new Date(Date.now() + 1000), allowWhileIdle: true },
+          iconColor: "#D95F7E",
+          smallIcon: "ic_stat_icon_config_sample"
+        }]
+      });
+      toast("测试提醒已发送");
+      return;
+    } catch (err) {
+      toast("测试提醒发送失败");
+      return;
+    }
+  }
+  if (!("Notification" in window) || Notification.permission !== "granted") {
+    toast("请先开启通知");
+    return;
+  }
+  new Notification("测试提醒", {
+    body: "你的工作台通知已经接通",
+    icon: "./assets/icons/icon-192.png"
+  });
+}
+
 function dayProgress() {
   const now = new Date();
   const minutes = now.getHours() * 60 + now.getMinutes();
@@ -227,11 +488,13 @@ function taskRows(taskList) {
     .map((task) => {
       const done = Boolean(task.done);
       const dateText = task.date ? formatDate(task.date) : "未设定日期";
+      const timeText = task.time ? ` · ${esc(task.time)}` : "";
+      const remindText = reminderMeta(task) ? ` · ${esc(reminderMeta(task))}` : "";
       return `<li class="task-row ${done ? "is-done" : ""}">
         <button class="check-btn ${done ? "is-done" : ""}" data-action="toggle-task" data-id="${esc(task.id)}" aria-label="${done ? "恢复任务" : "完成任务"}">${icon("check")}</button>
         <div class="task-main">
           <span class="task-title">${esc(task.title)}</span>
-          <span class="task-meta"><span class="priority priority-${esc(task.priority || "medium")}">${priorityLabel(task.priority)}</span> · ${esc(dateText)}</span>
+          <span class="task-meta"><span class="priority priority-${esc(task.priority || "medium")}">${priorityLabel(task.priority)}</span> · ${esc(dateText)}${timeText}${remindText}</span>
         </div>
         <div class="task-actions">
           <button class="btn-icon" data-action="edit-task" data-id="${esc(task.id)}" aria-label="编辑任务">${icon("edit")}</button>
@@ -247,16 +510,18 @@ function habitTile(habit, compact = false) {
   const done = isDoneOn(today, habit.history);
   const streak = computeStreak(habit.history);
   const days = lastSevenDays();
+  const remindText = reminderMeta(habit) ? ` · ${esc(reminderMeta(habit))}` : "";
   const dots = days
     .map((day) => `<span class="week-dot ${isDoneOn(day, habit.history) ? "is-on" : ""}"></span>`)
     .join("");
   return `<article class="habit-tile ${done ? "is-done" : ""}">
     <div class="habit-icon">${icon(habit.icon || "focus")}</div>
     <div class="habit-name">${esc(habit.name)}</div>
-    <div class="habit-meta">${done ? "今天已完成" : "今天还没打卡"} · 连续 ${streak} 天</div>
+    <div class="habit-meta">${done ? "今天已完成" : "今天还没打卡"} · 连续 ${streak} 天${remindText}</div>
     ${compact ? `<div class="week-dots">${dots}</div>` : ""}
     <div class="form-actions">
       <button class="btn-icon" data-action="toggle-habit" data-id="${esc(habit.id)}" aria-label="${done ? "取消打卡" : "今日打卡"}">${icon(done ? "check" : "plus")}</button>
+      ${compact ? "" : `<button class="btn-icon" data-action="edit-habit" data-id="${esc(habit.id)}" aria-label="编辑习惯">${icon("edit")}</button>`}
       ${compact ? "" : `<button class="btn-icon btn-danger" data-action="delete-habit" data-id="${esc(habit.id)}" aria-label="删除习惯">${icon("trash")}</button>`}
     </div>
   </article>`;
@@ -1225,6 +1490,14 @@ function renderTasks() {
           </select>
         </label>
       </div>
+      <div class="form-row form-row-two">
+        <label class="field-label">时间
+          <input id="task-time" type="time">
+        </label>
+        <label class="field-label">提醒
+          <select id="task-remind">${reminderOptions()}</select>
+        </label>
+      </div>
       <div class="form-actions">
         <button class="btn btn-primary" data-action="save-task">${icon("plus")}${editingTaskId ? "保存修改" : "添加任务"}</button>
         ${editingTaskId ? `<button class="btn" data-action="cancel-edit">${icon("x")}取消</button>` : ""}
@@ -1265,11 +1538,20 @@ function renderHabits() {
           <input id="habit-name" placeholder="例如：喝水、阅读、早睡" autocomplete="off">
         </label>
       </div>
+      <div class="form-row form-row-two">
+        <label class="field-label">时间
+          <input id="habit-time" type="time">
+        </label>
+        <label class="field-label">提醒
+          <select id="habit-remind">${reminderOptions()}</select>
+        </label>
+      </div>
       <div class="field-label">图标
         <div class="icon-picker">${picker}</div>
       </div>
       <div class="form-actions">
-        <button class="btn btn-primary" data-action="save-habit">${icon("plus")}添加习惯</button>
+        <button class="btn btn-primary" data-action="save-habit">${icon("plus")}${editingHabitId ? "保存修改" : "添加习惯"}</button>
+        ${editingHabitId ? `<button class="btn" data-action="cancel-edit">${icon("x")}取消</button>` : ""}
       </div>
     </div>
 
@@ -1765,6 +2047,17 @@ function renderSettings() {
 
       <section class="settings-row">
         <div>
+          <h2>提醒通知</h2>
+          <span class="panel-meta" id="notification-status">${notificationStatusText()}</span>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="enable-notifications">${icon("check")}开启通知</button>
+          <button class="btn" data-action="test-notification">${icon("clock")}测试提醒</button>
+        </div>
+      </section>
+
+      <section class="settings-row">
+        <div>
           <h2>数据</h2>
           <p>示例数据用于看看工作台长什么样；清空会把任务、习惯、课表、记录和复盘都重置。</p>
         </div>
@@ -1807,6 +2100,9 @@ function render(scrollToTop = false) {
   document.body.classList.toggle("dock-hidden", Boolean(state.settings.hideMobileNav));
   const dockToggle = $("#dock-toggle");
   if (dockToggle) dockToggle.textContent = state.settings.hideMobileNav ? "展开导航" : "收起导航";
+  const notificationStatus = $("#notification-status");
+  if (notificationStatus) notificationStatus.textContent = notificationStatusText();
+  scheduleRemindersSoon();
 }
 
 function setSync(status) {
@@ -2193,6 +2489,8 @@ function startEditTask(id) {
   $("#task-title").value = task.title;
   $("#task-date").value = task.date || todayISO();
   $("#task-priority").value = task.priority || "medium";
+  $("#task-time").value = task.time || "";
+  $("#task-remind").value = task.remind == null ? "none" : String(task.remind);
   $("#task-title").focus();
 }
 
@@ -2201,15 +2499,17 @@ function saveTask() {
   if (!title) return;
   const date = $("#task-date").value || todayISO();
   const priority = $("#task-priority").value;
+  const time = $("#task-time").value;
+  const remindRaw = $("#task-remind").value;
+  const remind = time && remindRaw !== "none" ? Number(remindRaw) : null;
+  const taskFields = { title, date, priority, time, remind };
   if (editingTaskId) {
     const task = state.tasks.find((item) => item.id === editingTaskId);
-    if (task) Object.assign(task, { title, date, priority });
+    if (task) Object.assign(task, taskFields);
   } else {
     state.tasks.unshift({
       id: uid("task"),
-      title,
-      date,
-      priority,
+      ...taskFields,
       done: false,
       createdAt: new Date().toISOString()
     });
@@ -2245,6 +2545,7 @@ function toggleHabit(id) {
 function deleteHabit(id) {
   if (!confirm("确定删除这个习惯吗？打卡记录也会一起删除。")) return;
   state.habits = state.habits.filter((habit) => habit.id !== id);
+  if (editingHabitId === id) editingHabitId = null;
   scheduleSave();
   render();
 }
@@ -2252,16 +2553,39 @@ function deleteHabit(id) {
 function saveHabit() {
   const name = $("#habit-name").value.trim();
   if (!name) return;
-  state.habits.push({
-    id: uid("habit"),
-    name,
-    icon: selectedHabitIcon,
-    streak: 0,
-    history: []
-  });
+  const time = $("#habit-time").value;
+  const remindRaw = $("#habit-remind").value;
+  const remind = time && remindRaw !== "none" ? Number(remindRaw) : null;
+  const habitFields = { name, icon: selectedHabitIcon, time, remind };
+  if (editingHabitId) {
+    const habit = state.habits.find((item) => item.id === editingHabitId);
+    if (habit) Object.assign(habit, habitFields);
+    editingHabitId = null;
+  } else {
+    state.habits.push({
+      id: uid("habit"),
+      ...habitFields,
+      streak: 0,
+      history: []
+    });
+  }
   $("#habit-name").value = "";
+  $("#habit-time").value = "";
+  $("#habit-remind").value = "none";
   scheduleSave();
   render();
+}
+
+function startEditHabit(id) {
+  const habit = state.habits.find((item) => item.id === id);
+  if (!habit) return;
+  editingHabitId = id;
+  selectedHabitIcon = habit.icon || "focus";
+  render();
+  $("#habit-name").value = habit.name;
+  $("#habit-time").value = habit.time || "";
+  $("#habit-remind").value = habit.remind == null ? "none" : String(habit.remind);
+  $("#habit-name").focus();
 }
 
 function saveCourse() {
@@ -2528,6 +2852,8 @@ function addTodayTask() {
     title,
     date: todayISO(),
     priority: "medium",
+    time: "",
+    remind: null,
     done: false,
     createdAt: new Date().toISOString()
   });
@@ -2668,6 +2994,7 @@ function handleClick(event) {
   if (action === "save-task") return saveTask();
   if (action === "toggle-check") return toggleCheck(id);
   if (action === "toggle-habit") return toggleHabit(id);
+  if (action === "edit-habit") return startEditHabit(id);
   if (action === "delete-habit") return deleteHabit(id);
   if (action === "save-habit") return saveHabit();
   if (action === "save-course") return saveCourse();
@@ -2704,12 +3031,15 @@ function handleClick(event) {
   if (action === "save-settings") return saveSettings();
   if (action === "save-cloud") return saveCloud();
   if (action === "clear-cloud") return clearCloud();
+  if (action === "enable-notifications") return enableNotifications();
+  if (action === "test-notification") return testNotification();
   if (action === "toggle-dock") return toggleDock();
   if (action === "save-focus") return saveFocus();
   if (action === "load-demo") return loadDemo();
   if (action === "clear-data") return clearData();
   if (action === "cancel-edit") {
     editingTaskId = null;
+    editingHabitId = null;
     editingCourseId = null;
     editingReviewId = null;
     render();
