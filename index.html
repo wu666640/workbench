@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f2e8">
+  <meta name="application-name" content="我的工作台">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>我的工作台</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!--
+  THESIS: 个人日常规划不是看板，而是一整天在光带中推进：打开即进入“现在”，今天的事、自检、课表和记录在同一幕布上依次亮起。
+  OWN-WORLD: 暖白纸面与明亮晨光为底，钴蓝地平线承载结构，玫瑰色只给“正在行动/已完成”；内容按横向光带分层，硬朗但克制的面板边框。
+  STORY: 使用者每天打开工作台，先看到此刻的时间与专注，再沿光带完成自检、任务、课表和记录；跨设备同步让电脑和手机看到同一幕。
+  FIRST VIEWPORT: 顶部是“现在”的问候与一天进度地平线，下方四块光带依次是每日自检、今日任务、今日课表、今日习惯，右侧留最近记录。
+  FORM: 晨光幕布，操作型界面第 4 号方向，seed key ff190f26。
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+  -->
+  <div class="launch-cover" id="launch-cover" role="region" aria-label="打开封面">
+    <div class="cover-stage">
+      <div class="cover-mark" aria-hidden="true">
+        <span class="cover-sun"></span>
+        <span class="cover-horizon"></span>
+      </div>
+      <p class="cover-kicker">PERSONAL DAILY OS</p>
+      <h1 class="cover-title" id="cover-title">我的工作台</h1>
+      <p class="cover-line">把今天过成自己的节奏</p>
+      <p class="cover-date" id="cover-date"></p>
+      <button class="cover-enter" id="cover-enter" type="button">进入工作台</button>
+    </div>
+  </div>
+
+  <div class="app" id="app">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span class="brand-horizon"></span>
+          <span class="brand-sun"></span>
+        </div>
+        <div class="brand-text">
+          <strong id="brand-title">我的工作台</strong>
+          <span>PERSONAL</span>
+        </div>
+      </div>
+      <nav class="rail-nav" aria-label="主导航">
+        <button class="nav-btn is-active" data-view="today">
+          <svg class="icon" aria-hidden="true"><use href="#icon-sun"></use></svg>
+          <span>今日</span>
+        </button>
+        <button class="nav-btn" data-view="tasks">
+          <svg class="icon" aria-hidden="true"><use href="#icon-list"></use></svg>
+          <span>待办</span>
+        </button>
+        <button class="nav-btn" data-view="habits">
+          <svg class="icon" aria-hidden="true"><use href="#icon-heart"></use></svg>
+          <span>习惯</span>
+        </button>
+        <button class="nav-btn" data-view="schedule">
+          <svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg>
+          <span>课表</span>
+        </button>
+        <button class="nav-btn" data-view="notes">
+          <svg class="icon" aria-hidden="true"><use href="#icon-book"></use></svg>
+          <span>记录</span>
+        </button>
+        <button class="nav-btn" data-view="assets">
+          <svg class="icon" aria-hidden="true"><use href="#icon-image"></use></svg>
+          <span>资料库</span>
+        </button>
+        <button class="nav-btn" data-view="rooms">
+          <svg class="icon" aria-hidden="true"><use href="#icon-clock"></use></svg>
+          <span>自习室</span>
+        </button>
+        <button class="nav-btn" data-view="review">
+          <svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>
+          <span>复盘</span>
+        </button>
+        <button class="nav-btn" data-view="settings">
+          <svg class="icon" aria-hidden="true"><use href="#icon-settings"></use></svg>
+          <span>设置</span>
+        </button>
+      </nav>
+      <div class="rail-foot">
+        <span class="sync-dot" id="rail-sync-dot"></span>
+        <span id="rail-sync-text">正在连接</span>
+      </div>
+    </aside>
+
+    <div class="stage">
+      <header class="topbar">
+        <div class="topbar-date" id="topbar-date"></div>
+        <button class="dock-toggle" id="dock-toggle" data-action="toggle-dock" aria-label="收起导航">收起导航</button>
+        <div class="sync-pill">
+          <span class="sync-dot" id="sync-dot"></span>
+          <span id="sync-text">正在连接</span>
+        </div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+
+    <nav class="dock" aria-label="移动端导航">
+      <button class="dock-btn is-active" data-view="today" aria-label="今日">
+        <svg class="icon" aria-hidden="true"><use href="#icon-sun"></use></svg>
+        <span>今日</span>
+      </button>
+      <button class="dock-btn" data-view="tasks" aria-label="待办">
+        <svg class="icon" aria-hidden="true"><use href="#icon-list"></use></svg>
+        <span>待办</span>
+      </button>
+      <button class="dock-btn" data-view="habits" aria-label="习惯">
+        <svg class="icon" aria-hidden="true"><use href="#icon-heart"></use></svg>
+        <span>习惯</span>
+      </button>
+      <button class="dock-btn" data-view="schedule" aria-label="课表">
+        <svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg>
+        <span>课表</span>
+      </button>
+      <button class="dock-btn" data-view="notes" aria-label="记录">
+        <svg class="icon" aria-hidden="true"><use href="#icon-book"></use></svg>
+        <span>记录</span>
+      </button>
+      <button class="dock-btn" data-view="assets" aria-label="资料库">
+        <svg class="icon" aria-hidden="true"><use href="#icon-image"></use></svg>
+        <span>资料库</span>
+      </button>
+      <button class="dock-btn" data-view="rooms" aria-label="自习室">
+        <svg class="icon" aria-hidden="true"><use href="#icon-clock"></use></svg>
+        <span>自习室</span>
+      </button>
+      <button class="dock-btn" data-view="review" aria-label="复盘">
+        <svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>
+        <span>复盘</span>
+      </button>
+      <button class="dock-btn" data-view="settings" aria-label="设置">
+        <svg class="icon" aria-hidden="true"><use href="#icon-settings"></use></svg>
+        <span>设置</span>
+      </button>
+    </nav>
+  </div>
+
+  <svg class="icon-sprite" aria-hidden="true">
+    <defs>
+      <symbol id="icon-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"></path>
+      </symbol>
+      <symbol id="icon-list" viewBox="0 0 24 24">
+        <path d="M8 6h13M8 12h13M8 18h13"></path>
+        <circle cx="4" cy="6" r="1"></circle>
+        <circle cx="4" cy="12" r="1"></circle>
+        <circle cx="4" cy="18" r="1"></circle>
+      </symbol>
+      <symbol id="icon-heart" viewBox="0 0 24 24">
+        <path d="M12 20s-7-4.3-9.3-8.5C1.1 8.6 2.8 5.5 6 5.5c2 0 3.3 1.2 4 2.4.7-1.2 2-2.4 4-2.4 3.2 0 4.9 3.1 3.3 6C19 15.7 12 20 12 20z"></path>
+      </symbol>
+      <symbol id="icon-calendar" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="16" rx="1"></rect>
+        <path d="M3 10h18M8 3v4M16 3v4"></path>
+      </symbol>
+      <symbol id="icon-book" viewBox="0 0 24 24">
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path>
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+      </symbol>
+      <symbol id="icon-chart" viewBox="0 0 24 24">
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path>
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"></path>
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="M5 12.5l4.5 4.5L19 7"></path>
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14"></path>
+      </symbol>
+      <symbol id="icon-minus" viewBox="0 0 24 24">
+        <path d="M5 12h14"></path>
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path>
+      </symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24">
+        <path d="M4 20l4.5-1 11-11-3.5-3.5-11 11z"></path>
+        <path d="M13.5 6.5l3.5 3.5"></path>
+      </symbol>
+      <symbol id="icon-upload" viewBox="0 0 24 24">
+        <path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path>
+      </symbol>
+      <symbol id="icon-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 7v5l3 2"></path>
+      </symbol>
+      <symbol id="icon-water" viewBox="0 0 24 24">
+        <path d="M12 3s6 6.6 6 11a6 6 0 1 1-12 0c0-4.4 6-11 6-11z"></path>
+      </symbol>
+      <symbol id="icon-walk" viewBox="0 0 24 24">
+        <circle cx="14" cy="4" r="2"></circle>
+        <path d="M10 21l3-6-2-3-3 2M13 15l3-3 2 2M16 21v-5"></path>
+      </symbol>
+      <symbol id="icon-sleep" viewBox="0 0 24 24">
+        <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z"></path>
+      </symbol>
+      <symbol id="icon-diet" viewBox="0 0 24 24">
+        <path d="M4 12h16M12 3v18M7 3c4 0 5 4 5 4s1-4 5-4"></path>
+      </symbol>
+      <symbol id="icon-focus" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9"></circle>
+        <circle cx="12" cy="12" r="4"></circle>
+        <circle cx="12" cy="12" r="1"></circle>
+      </symbol>
+      <symbol id="icon-image" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="1"></rect>
+        <circle cx="8.5" cy="9.5" r="1.5"></circle>
+        <path d="M21 16l-5-5-9 9"></path>
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6L6 18"></path>
+      </symbol>
+      <symbol id="icon-save" viewBox="0 0 24 24">
+        <path d="M5 3h11l5 5v13H5z"></path>
+        <path d="M8 3v6h8V3M8 21v-7h8v7"></path>
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 1 1-2.34-5.66M20 3v6h-6"></path>
+      </symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24">
+        <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path>
+        <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path>
+      </symbol>
+    </defs>
+  </svg>
+  <script src="app.js"></script>
+</body>
+</html>
