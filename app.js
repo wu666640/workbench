@@ -15,6 +15,7 @@ const LOCAL_STATE_KEY = "personal-workbench-local-v1";
 const CLOUD_CONFIG_KEY = "personal-workbench-cloud-v1";
 const AI_CONFIG_KEY = "workbench-ai-config-v1";
 const AUTH_STORAGE_KEY = "workbench-auth-v1";
+const ADMIN_KEY_STORAGE_KEY = "workbench-admin-key-v1";
 const DEFAULT_CLOUD_CONFIG = {
   url: "https://lqkdatdtgoxztawmtigj.supabase.co",
   key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxxa2RhdGR0Z294enRhd210aWdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTM1NjIsImV4cCI6MjEwMjA2OTU2Mn0.-oSyoXCTkry5dJ5XyYrQwHk2LowPU5YAbbg-xESR3MY",
@@ -46,14 +47,16 @@ let cloudConfig = readCloudConfig();
 let aiConfig = readAIConfig();
 let authSession = readAuthSession();
 let currentSpaceId = authSession?.user?.id || "personal-workbench";
+let adminKey = localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
 let notificationEnabled = localStorage.getItem("workbench-notification-enabled") === "1";
 let webReminderWatchTimer = null;
 let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 const GITHUB_REPO = "wu666640/workbench";
+const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 let pendingRoomScreenshot = null;
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -2677,7 +2680,7 @@ function renderSettings() {
         <div>
           <h2>账号</h2>
           ${authSession
-            ? `<p>当前登录：${esc(authSession.user?.email || "已登录")}</p>`
+            ? `<p>当前登录：${esc(authSession.user?.user_metadata?.username || authSession.user?.email || "已登录")}</p>`
             : `<label class="field-label">邮箱
                 <input id="account-email" type="email" placeholder="you@example.com" autocomplete="email">
               </label>
@@ -3636,11 +3639,112 @@ async function migratePersonalRowToUser() {
   });
 }
 
+function authEmailValue() {
+  return $("#auth-email")?.value ?? $("#account-email")?.value ?? "";
+}
+
+function authPasswordValue() {
+  return $("#auth-password")?.value ?? $("#account-password")?.value ?? "";
+}
+
+function authUsernameValue() {
+  return $("#auth-username")?.value.trim() ?? "";
+}
+
+function usernameToEmail(username) {
+  const normalized = String(username || "").trim().toLowerCase();
+  let hash = 5381;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = ((hash << 5) + hash + normalized.charCodeAt(index)) >>> 0;
+  }
+  const suffix = hash.toString(36).padStart(7, "0");
+  return `u${suffix}@example.com`;
+}
+
+function resolveAuthEmail() {
+  const raw = authEmailValue().trim();
+  const username = authUsernameValue();
+  const identifier = raw || username;
+  if (!identifier) return "";
+  return identifier.includes("@") ? identifier : usernameToEmail(identifier);
+}
+
+function authAdminKeyValue() {
+  return $("#auth-admin-key")?.value.trim() ?? "";
+}
+
+function saveAdminKey(key) {
+  adminKey = key;
+  try {
+    if (key) {
+      localStorage.setItem(ADMIN_KEY_STORAGE_KEY, key);
+    } else {
+      localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+    }
+  } catch (err) {
+    // storage may be unavailable; key still applies for this session
+  }
+}
+
+function saveAdminKeySetting() {
+  const value = $("#admin-key-setting")?.value.trim() ?? "";
+  saveAdminKey(value);
+  render();
+  toast(value ? "管理密钥已保存" : "管理密钥已清除");
+}
+
+function ensureCloudForAuth() {
+  if (!cloudConfig) {
+    cloudConfig = { ...DEFAULT_CLOUD_CONFIG };
+    writeCloudConfig(cloudConfig);
+  }
+}
+
+function showAuthScreen() {
+  if ($("#auth-screen")) return;
+  const overlay = document.createElement("div");
+  overlay.className = "auth-screen";
+  overlay.id = "auth-screen";
+  overlay.innerHTML = `
+    <div class="auth-card">
+      <div class="auth-mark">${icon("sun")}</div>
+      <h1>我的工作台</h1>
+      <p>登录后进入你的工作台</p>
+      <label class="field-label">用户名
+        <input id="auth-username" placeholder="你的用户名" autocomplete="username">
+      </label>
+      <label class="field-label">邮箱
+        <input id="auth-email" type="email" placeholder="可留空，用用户名注册" autocomplete="email">
+      </label>
+      <label class="field-label">密码
+        <input id="auth-password" type="password" placeholder="至少 6 位" autocomplete="current-password">
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-primary" data-action="login-account">${icon("check")}登录</button>
+        <button class="btn" data-action="register-account">${icon("plus")}注册</button>
+      </div>
+      <span class="panel-meta" id="auth-status">未登录</span>
+      <button class="auth-skip" data-action="dismiss-auth">先跳过，稍后登录</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.body.classList.add("auth-open");
+  const usernameInput = $("#auth-username");
+  if (usernameInput) usernameInput.focus();
+}
+
+function dismissAuthScreen() {
+  const overlay = $("#auth-screen");
+  if (overlay) overlay.remove();
+  document.body.classList.remove("auth-open");
+}
+
 async function loginAccount() {
-  const email = $("#account-email")?.value.trim();
-  const password = $("#account-password")?.value;
+  ensureCloudForAuth();
+  const email = resolveAuthEmail();
+  const password = authPasswordValue();
   if (!email || !password) {
-    toast("请输入邮箱和密码");
+    toast("请输入用户名和密码");
     return;
   }
   try {
@@ -3659,6 +3763,7 @@ async function loginAccount() {
     await migratePersonalRowToUser();
     await loadState();
     render();
+    dismissAuthScreen();
     toast("登录成功");
   } catch (err) {
     toast(err.message || "登录失败");
@@ -3666,10 +3771,12 @@ async function loginAccount() {
 }
 
 async function registerAccount() {
-  const email = $("#account-email")?.value.trim();
-  const password = $("#account-password")?.value;
+  ensureCloudForAuth();
+  const email = resolveAuthEmail();
+  const username = authUsernameValue() || email.split("@")[0];
+  const password = authPasswordValue();
   if (!email || !password) {
-    toast("请输入邮箱和密码");
+    toast("请输入用户名和密码");
     return;
   }
   if (password.length < 6) {
@@ -3677,7 +3784,69 @@ async function registerAccount() {
     return;
   }
   try {
-    const res = await fetch(`${cloudConfig.url}/auth/v1/signup`, {
+    if (AUTH_HELPER_URL) {
+      const helperRes = await fetch(AUTH_HELPER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", email, password, username })
+      });
+      const helperData = await helperRes.json().catch(() => ({}));
+      if (!helperRes.ok) {
+        const helperMessage = helperData?.msg || helperData?.error_description || helperData?.error || "注册服务暂时不可用";
+        if (helperData?.code === 422 || helperData?.error_code === "email_exists" || /already been registered/i.test(helperMessage)) {
+          toast("这个用户名已经注册，请直接登录");
+          return;
+        }
+        throw new Error(helperMessage);
+      }
+    } else {
+      const res = await fetch(`${cloudConfig.url}/auth/v1/signup`, {
+        method: "POST",
+        headers: {
+          apikey: cloudConfig.key,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          options: { data: { username } }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error_description || data?.error || "注册失败");
+      if (data.access_token) {
+        await finishAuth(data.user.id, data.access_token, data.user);
+        toast("注册成功");
+        return;
+      }
+      const userId = data.user?.id;
+      if (!userId) {
+        toast("注册已创建，请查收邮箱完成验证后登录");
+        return;
+      }
+      const key = adminKey || authAdminKeyValue();
+      if (!key) {
+        const status = $("#auth-status");
+        if (status) status.textContent = "注册已创建，请填写管理密钥完成自动确认";
+        toast("请填写管理密钥完成自动确认");
+        return;
+      }
+      const confirmRes = await fetch(`${cloudConfig.url}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: {
+          apikey: cloudConfig.key,
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email_confirm: true })
+      });
+      const confirmData = await confirmRes.json().catch(() => ({}));
+      if (!confirmRes.ok) {
+        throw new Error(confirmData?.msg || confirmData?.error_description || confirmData?.error || "自动确认失败，请检查管理密钥");
+      }
+      saveAdminKey(key);
+    }
+    const loginRes = await fetch(`${cloudConfig.url}/auth/v1/token?grant_type=password`, {
       method: "POST",
       headers: {
         apikey: cloudConfig.key,
@@ -3685,21 +3854,24 @@ async function registerAccount() {
       },
       body: JSON.stringify({ email, password })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error_description || data?.error || "注册失败");
-    if (data.access_token) {
-      writeAuthSession({ access_token: data.access_token, user: data.user });
-      currentSpaceId = data.user.id;
-      await migratePersonalRowToUser();
-      await loadState();
-      render();
-      toast("注册成功");
-    } else {
-      toast("注册成功，请查收邮箱完成验证后登录");
+    const loginData = await loginRes.json();
+    if (!loginRes.ok || !loginData.access_token) {
+      throw new Error("账号可能已存在，请直接登录，或检查密码后重试");
     }
+    await finishAuth(loginData.user.id, loginData.access_token, loginData.user);
+    toast("注册成功");
   } catch (err) {
     toast(err.message || "注册失败");
   }
+}
+
+async function finishAuth(userId, accessToken, user) {
+  writeAuthSession({ access_token: accessToken, user });
+  currentSpaceId = userId;
+  await migratePersonalRowToUser();
+  await loadState();
+  render();
+  dismissAuthScreen();
 }
 
 async function logoutAccount() {
@@ -3712,6 +3884,7 @@ async function logoutAccount() {
   currentSpaceId = "personal-workbench";
   await loadState();
   render();
+  showAuthScreen();
   toast("已退出登录");
 }
 
@@ -4104,6 +4277,8 @@ function handleClick(event) {
   if (action === "login-account") return loginAccount();
   if (action === "register-account") return registerAccount();
   if (action === "logout-account") return logoutAccount();
+  if (action === "save-admin-key") return saveAdminKeySetting();
+  if (action === "dismiss-auth") return dismissAuthScreen();
   if (action === "create-project") return createProject();
   if (action === "join-project") return joinProject();
   if (action === "refresh-projects") return refreshProjectList();
@@ -4278,3 +4453,6 @@ scheduleDayRefresh();
 loadState();
 startPolling();
 refreshNotificationPermission();
+if (!authSession) {
+  setTimeout(showAuthScreen, 1700);
+}
