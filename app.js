@@ -60,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.10";
+const APP_VERSION = "1.2.11";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -1025,12 +1025,12 @@ function matchWeeks(text) {
 
 function looksLikeLocation(value) {
   const text = String(value || "").trim();
-  return /(?:楼|馆|教室|实验室|操场|体育馆|图书馆|文体中心|中心|校区)[A-Za-z0-9]|^[A-Za-z]?\d{2,}|线上|腾讯会议|钉钉|zoom/i.test(text);
+  return /(?:楼|馆|教室|实验室|操场|体育场|体育馆|图书馆|文体中心|中心|校区)[A-Za-z0-9]|^[A-Za-z]?\d{2,}|线上|腾讯会议|钉钉|zoom/i.test(text);
 }
 
 function extractLocation(value) {
   const text = String(value || "").trim();
-  const building = text.match(/([A-Za-z\u4e00-\u9fa5]*?(?:教学楼|实验楼|综合楼|外语楼|宿舍楼|楼|馆|教室|实验室|图书馆|体育馆|操场|文体中心|中心|校区)\s*[A-Za-z]?\d{0,4})/);
+  const building = text.match(/([A-Za-z\u4e00-\u9fa5]*?(?:教学楼|实验楼|综合楼|外语楼|宿舍楼|楼|馆|教室|实验室|图书馆|体育馆|体育场|操场|文体中心|中心|校区)\s*[A-Za-z]?\d{0,4})/);
   if (building) return building[1].trim();
   const simple = text.match(/[A-Za-z]?\d{2,}/);
   return simple ? simple[0] : "";
@@ -1303,6 +1303,8 @@ function detectSemesterFromRows(rows, fileName) {
   for (const row of rows) {
     for (const cell of row) {
       const text = cleanCellText(cell);
+      const yearSeason = text.match(/(20\d{2})\s*[-—–~]\s*(20\d{2})\s*学年\s*(春季|夏季|秋季|冬季)/);
+      if (yearSeason) return `${yearSeason[1]}-${yearSeason[2]}学年${yearSeason[3]}`;
       const matched = text.match(/(20\d{2})\s*(春季|夏季|秋季|冬季)?\s*学期/);
       if (matched) return `${matched[1]}${matched[2] || ""}学期`;
     }
@@ -1312,10 +1314,37 @@ function detectSemesterFromRows(rows, fileName) {
   return "未命名学期";
 }
 
+function parseNeuqCourseLine(line, weekday, startPeriod, endPeriod) {
+  const matched = String(line || "").trim().match(
+    /^(.+?)\s+\((\d{10,}\.\d{2})\)\s*\(([^()]*)\)\s*\(([\s\S]*)\)$/
+  );
+  if (!matched) return null;
+  const tail = String(matched[4] || "").trim();
+  const times = periodRangeTimes(startPeriod, endPeriod);
+  return {
+    title: matched[1].trim(),
+    weekday,
+    start: times.start,
+    end: times.end,
+    startPeriod,
+    endPeriod,
+    location: extractLocation(tail),
+    teacher: String(matched[3] || "").trim(),
+    weeks: normalizeWeeks(String(tail).split(/\s+/)[0] || ""),
+    color: courseColor(matched[1].trim())
+  };
+}
+
 function parseHitCourseCell(cellText, weekday, startPeriod, endPeriod) {
-  const text = cleanCellText(cellText);
+  const text = cleanCellText(cellText).replace(/\)\)(?=[\u4e00-\u9fa5A-Za-z])/g, "))\n");
   if (!text || text === "&nbsp;") return [];
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const structured = [];
+  for (const line of lines) {
+    const course = parseNeuqCourseLine(line, weekday, startPeriod, endPeriod);
+    if (course) structured.push(course);
+  }
+  if (structured.length) return structured;
   const rawCourses = [];
   let current = null;
   for (const line of lines) {
@@ -1382,10 +1411,21 @@ function parseHitCourseCell(cellText, weekday, startPeriod, endPeriod) {
   return results;
 }
 
-function parseHitXlsRows(rows, fileName) {
-  const semester = detectSemesterFromRows(rows, fileName);
-  let headerIndex = -1;
-  let weekdayCols = [];
+function periodRangeFromLabel(label) {
+  const text = String(label || "").replace(/\s+/g, "");
+  let matched = text.match(/第(\d{1,2})[,，](\d{1,2})节/);
+  if (matched) return [Number(matched[1]), Number(matched[2])];
+  matched = text.match(/第(\d{1,2})[-—–~～至](\d{1,2})节/);
+  if (matched) return [Number(matched[1]), Number(matched[2])];
+  matched = text.match(/第([一二三四五六七八九十\d]+)节/);
+  if (matched) {
+    const number = chineseNumberToInt(matched[1]);
+    if (number) return [number, number];
+  }
+  return null;
+}
+
+function findWeekdayHeaderRow(rows) {
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] || [];
     const found = {};
@@ -1393,29 +1433,30 @@ function parseHitXlsRows(rows, fileName) {
       const weekday = weekdayFromText(row[colIndex]);
       if (weekday >= 0) found[weekday] = colIndex;
     }
-    if (Object.keys(found).length >= 7) {
-      headerIndex = rowIndex;
-      weekdayCols = found;
-      break;
-    }
+    if (Object.keys(found).length >= 7) return { rowIndex, cols: found };
   }
+  return null;
+}
+
+function parseGridXlsRows(rows, merges, fileName, sheetName) {
+  const semester = detectSemesterFromRows(rows, fileName) || detectSemesterFromRows(rows, sheetName) || "未命名学期";
+  const header = findWeekdayHeaderRow(rows);
+  if (!header) return { semester, courses: [] };
   const courses = [];
-  if (headerIndex < 0) return { semester, courses };
-  for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+  for (let rowIndex = header.rowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] || [];
     const label = `${cleanCellText(row[0] || "")} ${cleanCellText(row[1] || "")}`;
-    const matched =
-      label.match(/第\s*(\d{1,2})\s*[,，]\s*(\d{1,2})\s*节/) ||
-      label.match(/第\s*(\d{1,2})\s*[-—–~～至]\s*(\d{1,2})\s*节/) ||
-      label.match(/第\s*(\d{1,2})\s*节/);
-    if (!matched) continue;
-    const startPeriod = Number(matched[1]);
-    const endPeriod = Number(matched[2] || matched[1]);
+    const range = periodRangeFromLabel(label);
+    if (!range) continue;
+    const [startPeriod, labelEnd] = range;
     for (let weekday = 0; weekday < 7; weekday += 1) {
-      const colIndex = weekdayCols[weekday];
+      const colIndex = header.cols[weekday];
       if (colIndex == null) continue;
       const cell = cleanCellText(row[colIndex]);
       if (!cell || cell === "&nbsp;") continue;
+      let endPeriod = labelEnd;
+      const merge = (merges || []).find((item) => item.s.r === rowIndex && item.s.c === colIndex);
+      if (merge) endPeriod = startPeriod + (merge.e.r - merge.s.r);
       const parsed = parseHitCourseCell(cell, weekday, startPeriod, endPeriod);
       for (const course of parsed) {
         course.semester = semester;
@@ -1431,9 +1472,23 @@ function parseXlsSchedule(buffer, fileName) {
     return { semester: "", courses: [], error: "缺少表格解析组件" };
   }
   const workbook = XLSX.read(buffer, { type: "array" });
-  const sheetName = workbook.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
-  return parseHitXlsRows(rows, fileName);
+  let best = null;
+  let semester = "";
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    const parsed = parseGridXlsRows(rows, sheet["!merges"] || [], fileName, sheetName);
+    if (!semester) {
+      const found = detectSemesterFromRows(rows, fileName) || detectSemesterFromRows(rows, sheetName);
+      if (found) semester = found;
+    }
+    if (!parsed.courses.length) continue;
+    if (!best || parsed.courses.length > best.courses.length) best = parsed;
+  }
+  if (best && (!best.semester || best.semester === "未命名学期")) {
+    best.semester = semester || "未命名学期";
+  }
+  return best || { semester: semester || "未命名学期", courses: [] };
 }
 
 function parseCSV(text) {

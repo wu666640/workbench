@@ -1,5 +1,5 @@
 {
-  "version": "1.2.10",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.10.apk",
-  "announcement": "待办、习惯、课表、记录、资料库、自习室、复盘页面都新增“一键清空”按钮，确认后才会清空，防止误操作。"
+  "version": "1.2.11",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.11.apk",
+  "announcement": "修复东北大学 xls 课表识别：自动读取真正的课表工作表，课程按两节合并成一个大课块，同一格多门课也能正确拆开。"
 }
