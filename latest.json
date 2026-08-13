@@ -1,5 +1,5 @@
 {
-  "version": "1.2.13",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.13.apk",
-  "announcement": "东北大学秦皇岛分校课表导入更清晰：点按钮直接打开教务课表页，登录后另存为 HTML 再上传即可；也可以继续上传 xls。"
+  "version": "1.2.14",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.14.apk",
+  "announcement": "修复东秦课表导入“无权限”问题：按钮改为打开一网通办门户，登录后进入教务系统的课表页，另存为 HTML 再上传即可。"
 }
