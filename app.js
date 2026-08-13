@@ -60,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.8";
+const APP_VERSION = "1.2.9";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -4370,37 +4370,49 @@ async function refreshProjectList() {
     list.innerHTML = `<span class="panel-meta">登录后可查看项目</span>`;
     return;
   }
+  const personalButton = `<button class="btn ${currentSpaceId === authSession.user.id ? "is-active" : ""}" data-action="switch-personal-space">${icon("user")}私人工作台</button>`;
+  let rows = [];
+  let withExpiry = false;
   try {
     const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code,invite_expires_at&order=created_at`);
-    const rows = await res.json();
+    const data = await res.json();
     if (!res.ok) throw new Error("读取项目失败");
-    const personalButton = `<button class="btn ${currentSpaceId === authSession.user.id ? "is-active" : ""}" data-action="switch-personal-space">${icon("user")}私人工作台</button>`;
-    const projectRows = (Array.isArray(rows) ? rows : [])
-      .map((project) => {
-        const expiresAt = project.invite_expires_at ? new Date(project.invite_expires_at) : null;
-        const expired = Boolean(expiresAt && expiresAt.getTime() <= Date.now());
-        const remainMinutes = expiresAt ? Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60000)) : 0;
-        const inviteState = project.invite_code
-          ? (expired ? "已过期" : `${remainMinutes} 分钟后过期`)
-          : "";
-        return `
+    rows = Array.isArray(data) ? data : [];
+    withExpiry = true;
+  } catch (err) {
+    try {
+      const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code&order=created_at`);
+      const data = await res.json();
+      if (!res.ok) throw new Error("读取项目失败");
+      rows = Array.isArray(data) ? data : [];
+    } catch (err2) {
+      list.innerHTML = `${personalButton} <span class="panel-meta">${esc(err2.message || "读取项目失败")}</span>`;
+      return;
+    }
+  }
+  const projectRows = rows
+    .map((project) => {
+      const expiresAt = withExpiry && project.invite_expires_at ? new Date(project.invite_expires_at) : null;
+      const expired = Boolean(expiresAt && expiresAt.getTime() <= Date.now());
+      const remainMinutes = expiresAt ? Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60000)) : 0;
+      const inviteState = project.invite_code
+        ? (expired ? "已过期" : `${remainMinutes} 分钟后过期`)
+        : "";
+      return `
         <div class="project-row">
           <div class="project-main">
             <button class="btn ${currentSpaceId === `project:${project.id}` ? "is-active" : ""}" data-action="switch-project" data-id="${esc(project.id)}">${esc(project.name)}</button>
             <span class="project-invite">邀请码：${esc(project.invite_code || "暂无")}${inviteState ? ` · ${esc(inviteState)}` : ""}</span>
             <div class="project-actions">
               <button class="btn btn-compact" data-action="copy-project-invite" data-code="${esc(project.invite_code || "")}">${icon("link")}复制邀请码</button>
-              <button class="btn btn-compact" data-action="regenerate-invite" data-id="${esc(project.id)}">${icon("refresh")}重新生成</button>
+              ${withExpiry ? `<button class="btn btn-compact" data-action="regenerate-invite" data-id="${esc(project.id)}">${icon("refresh")}重新生成</button>` : ""}
             </div>
           </div>
           <button class="btn-icon btn-danger" data-action="delete-project" data-id="${esc(project.id)}" aria-label="删除项目">${icon("trash")}</button>
         </div>`;
-      })
-      .join(" ");
-    list.innerHTML = `${personalButton} ${projectRows || `<span class="panel-meta">还没有项目</span>`}`;
-  } catch (err) {
-    list.innerHTML = `<span class="panel-meta">${esc(err.message || "读取项目失败")}</span>`;
-  }
+    })
+    .join(" ");
+  list.innerHTML = `${personalButton} ${projectRows || `<span class="panel-meta">还没有项目</span>`}`;
 }
 
 async function switchProject(id) {

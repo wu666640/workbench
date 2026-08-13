@@ -1,5 +1,5 @@
 {
-  "version": "1.2.8",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.8.apk",
-  "announcement": "修复切换项目/私人工作台时个人数据被覆盖的问题，每个空间独立保存。项目按钮当前所在空间会高亮。项目列表直接显示邀请码和剩余时间，30 分钟过期，可重新生成。"
+  "version": "1.2.9",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.9.apk",
+  "announcement": "修复项目列表可能整个不显示的问题：即使数据库新字段还没更新，私人工作台和项目也会正常显示。"
 }
