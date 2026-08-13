@@ -1605,8 +1605,31 @@ textarea:focus {
 }
 
 .project-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.project-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.project-invite {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 

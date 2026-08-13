@@ -1,5 +1,5 @@
 {
-  "version": "1.2.7",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.7.apk",
-  "announcement": "用户名登录现在会直接去云端查找旧账号对应邮箱，旧账号和新设备都能直接用用户名登录。项目列表新增“私人工作台”，随时切回个人数据；项目也可以删除了。"
+  "version": "1.2.8",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.8.apk",
+  "announcement": "修复切换项目/私人工作台时个人数据被覆盖的问题，每个空间独立保存。项目按钮当前所在空间会高亮。项目列表直接显示邀请码和剩余时间，30 分钟过期，可重新生成。"
 }

@@ -12,6 +12,7 @@ const state = {
 };
 
 const LOCAL_STATE_KEY = "personal-workbench-local-v1";
+const LOCAL_STATE_MIGRATED_KEY = "workbench-local-state-migrated-v1";
 const CLOUD_CONFIG_KEY = "personal-workbench-cloud-v1";
 const AI_CONFIG_KEY = "workbench-ai-config-v1";
 const AUTH_STORAGE_KEY = "workbench-auth-v1";
@@ -59,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.7";
+const APP_VERSION = "1.2.8";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -3026,9 +3027,29 @@ function setSync(status) {
   if (settingsSync) settingsSync.textContent = text;
 }
 
+function localStateKey() {
+  return `${LOCAL_STATE_KEY}:${cloudRowId()}`;
+}
+
+function migrateLegacyLocalState() {
+  try {
+    if (localStorage.getItem(LOCAL_STATE_MIGRATED_KEY)) return;
+    const legacyRaw = localStorage.getItem(LOCAL_STATE_KEY);
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw);
+      if (parsed && typeof parsed === "object") {
+        localStorage.setItem(localStateKey(), legacyRaw);
+      }
+    }
+    localStorage.setItem(LOCAL_STATE_MIGRATED_KEY, "1");
+  } catch (err) {
+    // storage may be unavailable; cloud copy still loads
+  }
+}
+
 function readLocalState() {
   try {
-    const raw = localStorage.getItem(LOCAL_STATE_KEY);
+    const raw = localStorage.getItem(localStateKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" ? parsed : null;
@@ -3224,7 +3245,7 @@ function cloudTable() {
 
 function writeLocalState() {
   try {
-    localStorage.setItem(LOCAL_STATE_KEY, JSON.stringify({ revision, state }));
+    localStorage.setItem(localStateKey(), JSON.stringify({ revision, state }));
     return true;
   } catch (err) {
     const now = Date.now();
@@ -4326,8 +4347,11 @@ async function joinProject() {
       },
       body: JSON.stringify({ code })
     });
-    const project = await res.json();
-    if (!res.ok || !project?.id) throw new Error("邀请码不存在");
+    const project = await res.json().catch(() => ({}));
+    if (!res.ok || !project?.id) {
+      if (project?.message === "INVITE_EXPIRED") throw new Error("邀请码已过期，请让项目创建者重新生成");
+      throw new Error("邀请码不存在");
+    }
     await ensureProjectState(project.id);
     await saveNow();
     currentSpaceId = `project:${project.id}`;
@@ -4347,16 +4371,31 @@ async function refreshProjectList() {
     return;
   }
   try {
-    const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code&order=created_at`);
+    const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code,invite_expires_at&order=created_at`);
     const rows = await res.json();
     if (!res.ok) throw new Error("读取项目失败");
     const personalButton = `<button class="btn ${currentSpaceId === authSession.user.id ? "is-active" : ""}" data-action="switch-personal-space">${icon("user")}私人工作台</button>`;
     const projectRows = (Array.isArray(rows) ? rows : [])
-      .map((project) => `
+      .map((project) => {
+        const expiresAt = project.invite_expires_at ? new Date(project.invite_expires_at) : null;
+        const expired = Boolean(expiresAt && expiresAt.getTime() <= Date.now());
+        const remainMinutes = expiresAt ? Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60000)) : 0;
+        const inviteState = project.invite_code
+          ? (expired ? "已过期" : `${remainMinutes} 分钟后过期`)
+          : "";
+        return `
         <div class="project-row">
-          <button class="btn" data-action="switch-project" data-id="${esc(project.id)}">${esc(project.name)}</button>
+          <div class="project-main">
+            <button class="btn ${currentSpaceId === `project:${project.id}` ? "is-active" : ""}" data-action="switch-project" data-id="${esc(project.id)}">${esc(project.name)}</button>
+            <span class="project-invite">邀请码：${esc(project.invite_code || "暂无")}${inviteState ? ` · ${esc(inviteState)}` : ""}</span>
+            <div class="project-actions">
+              <button class="btn btn-compact" data-action="copy-project-invite" data-code="${esc(project.invite_code || "")}">${icon("link")}复制邀请码</button>
+              <button class="btn btn-compact" data-action="regenerate-invite" data-id="${esc(project.id)}">${icon("refresh")}重新生成</button>
+            </div>
+          </div>
           <button class="btn-icon btn-danger" data-action="delete-project" data-id="${esc(project.id)}" aria-label="删除项目">${icon("trash")}</button>
-        </div>`)
+        </div>`;
+      })
       .join(" ");
     list.innerHTML = `${personalButton} ${projectRows || `<span class="panel-meta">还没有项目</span>`}`;
   } catch (err) {
@@ -4406,6 +4445,38 @@ async function deleteProject(id) {
     toast("项目已删除");
   } catch (err) {
     toast(err.message || "删除项目失败");
+  }
+}
+
+function copyProjectInvite(code) {
+  if (!code) {
+    toast("还没有邀请码，先重新生成");
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(code).then(() => toast("邀请码已复制")).catch(() => {
+      prompt("复制邀请码", code);
+    });
+  } else {
+    prompt("复制邀请码", code);
+  }
+}
+
+async function regenerateInvite(id) {
+  if (!id) return;
+  const code = makeInviteCode();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  try {
+    const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?id=eq.${id}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ invite_code: code, invite_expires_at: expiresAt })
+    });
+    if (!res.ok) throw new Error("重新生成失败");
+    await refreshProjectList();
+    toast("已生成新邀请码，30 分钟内有效");
+  } catch (err) {
+    toast(err.message || "重新生成邀请码失败");
   }
 }
 
@@ -4660,6 +4731,8 @@ function handleClick(event) {
   if (action === "switch-project") return switchProject(id);
   if (action === "switch-personal-space") return switchPersonalSpace();
   if (action === "delete-project") return deleteProject(id);
+  if (action === "copy-project-invite") return copyProjectInvite(el.dataset.code);
+  if (action === "regenerate-invite") return regenerateInvite(id);
   if (action === "save-cloud") return saveCloud();
   if (action === "clear-cloud") return clearCloud();
   if (action === "enable-notifications") return enableNotifications();
@@ -4827,6 +4900,7 @@ if ("serviceWorker" in navigator) {
 
 initLaunchCover();
 scheduleDayRefresh();
+migrateLegacyLocalState();
 loadState();
 startPolling();
 refreshNotificationPermission();
