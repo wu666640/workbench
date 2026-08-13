@@ -54,7 +54,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.2.2";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 let pendingRoomScreenshot = null;
@@ -568,14 +568,28 @@ async function checkForUpdate() {
     }
     updateStatusText = `正在下载 ${tag}…`;
     refreshUpdateStatus();
-    const apkResponse = await fetch(downloadUrl);
-    if (!apkResponse.ok) throw new Error("download-failed");
-    const buffer = await apkResponse.arrayBuffer();
     const fileName = `workbench-update-${tag}.apk`;
     const Filesystem = window.Capacitor.Plugins.Filesystem;
+    let apkBase64 = "";
+    const httpPlugin = window.Capacitor?.Plugins?.CapacitorHttp;
+    if (httpPlugin) {
+      const nativeRes = await httpPlugin.request({
+        url: downloadUrl,
+        method: "GET",
+        responseType: "arraybuffer",
+        connectTimeout: 30000,
+        readTimeout: 120000
+      });
+      if (nativeRes.status !== 200 || !nativeRes.data) throw new Error("download-failed");
+      apkBase64 = nativeRes.data;
+    } else {
+      const apkResponse = await fetch(downloadUrl);
+      if (!apkResponse.ok) throw new Error("download-failed");
+      apkBase64 = arrayBufferToBase64(await apkResponse.arrayBuffer());
+    }
     const writeResult = await Filesystem.writeFile({
       path: fileName,
-      data: arrayBufferToBase64(buffer),
+      data: apkBase64,
       directory: "CACHE"
     });
     const filePath = writeResult?.uri || (await Filesystem.getUri({ path: fileName, directory: "CACHE" })).uri;
