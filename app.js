@@ -17,6 +17,7 @@ const AI_CONFIG_KEY = "workbench-ai-config-v1";
 const AUTH_STORAGE_KEY = "workbench-auth-v1";
 const ADMIN_KEY_STORAGE_KEY = "workbench-admin-key-v1";
 const USERNAME_EMAIL_MAP_KEY = "workbench-username-email-map-v1";
+const NAV_DEFAULT_KEY = "workbench-nav-default-v1";
 const DEFAULT_CLOUD_CONFIG = {
   url: "https://lqkdatdtgoxztawmtigj.supabase.co",
   key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxxa2RhdGR0Z294enRhd210aWdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTM1NjIsImV4cCI6MjEwMjA2OTU2Mn0.-oSyoXCTkry5dJ5XyYrQwHk2LowPU5YAbbg-xESR3MY",
@@ -58,7 +59,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.5";
+const APP_VERSION = "1.2.6";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -3000,10 +3001,7 @@ function render(scrollToTop = false) {
   $("#brand-title").textContent = state.settings.title || "我的工作台";
   document.title = `${state.settings.title || "我的工作台"}`;
   $("#topbar-date").textContent = `${formatDate(todayISO())} · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
-  if (state.settings.hideMobileNav === undefined) {
-    state.settings.hideMobileNav = true;
-    scheduleSave();
-  }
+  applyNavDefaultOnce();
   document.body.classList.toggle("dock-hidden", Boolean(state.settings.hideMobileNav));
   const dockToggle = $("#dock-toggle");
   if (dockToggle) dockToggle.textContent = state.settings.hideMobileNav ? "展开导航" : "收起导航";
@@ -3176,6 +3174,7 @@ async function refreshAuthToken() {
       expires_at: data.expires_at || 0,
       user: data.user || authSession.user
     });
+    rememberAuthUsernameEmail();
     return true;
   } catch (err) {
     return false;
@@ -3948,6 +3947,24 @@ function emailForUsername(username) {
   return map[normalized] || "";
 }
 
+function rememberAuthUsernameEmail() {
+  const user = authSession?.user;
+  if (!user) return;
+  const username = user.user_metadata?.username || "";
+  if (username && user.email) rememberUsernameEmail(username, user.email);
+}
+
+function applyNavDefaultOnce() {
+  try {
+    if (localStorage.getItem(NAV_DEFAULT_KEY) === "1") return;
+    localStorage.setItem(NAV_DEFAULT_KEY, "1");
+  } catch (err) {
+    return;
+  }
+  state.settings.hideMobileNav = true;
+  scheduleSave();
+}
+
 function resolveAuthEmail() {
   const raw = authEmailValue().trim();
   const username = authUsernameValue();
@@ -4172,6 +4189,7 @@ async function finishAuth(userId, accessToken, user, refreshToken = "", expiresA
     user
   });
   authExpiredHandled = false;
+  rememberAuthUsernameEmail();
   currentSpaceId = userId;
   await migratePersonalRowToUser();
   await loadState();
@@ -4754,6 +4772,7 @@ scheduleDayRefresh();
 loadState();
 startPolling();
 refreshNotificationPermission();
+rememberAuthUsernameEmail();
 if (!authSession) {
   setTimeout(showAuthScreen, 1700);
 }
