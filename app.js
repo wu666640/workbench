@@ -57,9 +57,10 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.2.4";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
+const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
 let pendingRoomScreenshot = null;
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -535,19 +536,45 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+async function fetchUpdateManifest(url) {
+  const httpPlugin = window.Capacitor?.Plugins?.CapacitorHttp;
+  if (httpPlugin) {
+    const nativeRes = await httpPlugin.request({
+      url,
+      method: "GET",
+      responseType: "json",
+      connectTimeout: 15000,
+      readTimeout: 30000
+    });
+    if (nativeRes.status !== 200) throw new Error("check-failed");
+    return typeof nativeRes.data === "string" ? JSON.parse(nativeRes.data) : nativeRes.data;
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("check-failed");
+  return res.json();
+}
+
 async function checkForUpdate() {
   updateStatusText = "正在检查更新…";
   refreshUpdateStatus();
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { Accept: "application/vnd.github+json" }
-    });
-    if (!res.ok) throw new Error("check-failed");
-    const release = await res.json();
-    const tag = String(release.tag_name || "").replace(/^v/i, "");
-    const asset = (release.assets || []).find((item) => /workbench-android-.*\.apk/i.test(item.name || ""));
-    const downloadUrl = asset?.browser_download_url || release.html_url;
-    const announcement = String(release.body || "").trim();
+    let release = null;
+    try {
+      release = await fetchUpdateManifest(UPDATE_MANIFEST_URL);
+    } catch (err) {
+      release = null;
+    }
+    if (!release || !release.version) {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: { Accept: "application/vnd.github+json" }
+      });
+      if (!res.ok) throw new Error("check-failed");
+      release = await res.json();
+    }
+    const tag = String(release.version || release.tag_name || "").replace(/^v/i, "");
+    const asset = release.apkUrl || (release.assets || []).find((item) => /workbench-android-.*\.apk/i.test(item.name || ""))?.browser_download_url || "";
+    const downloadUrl = asset || release.html_url || "";
+    const announcement = String(release.announcement || release.body || "").trim();
     if (!isNewerVersion(tag, APP_VERSION)) {
       updateStatusText = "已是最新版本";
       refreshUpdateStatus();
