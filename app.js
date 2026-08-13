@@ -1,5 +1,5 @@
 const state = {
-  settings: { name: "", title: "我的工作台" },
+  settings: { name: "", title: "我的工作台", hideMobileNav: true },
   focus: {},
   tasks: [],
   habits: [],
@@ -16,6 +16,7 @@ const CLOUD_CONFIG_KEY = "personal-workbench-cloud-v1";
 const AI_CONFIG_KEY = "workbench-ai-config-v1";
 const AUTH_STORAGE_KEY = "workbench-auth-v1";
 const ADMIN_KEY_STORAGE_KEY = "workbench-admin-key-v1";
+const USERNAME_EMAIL_MAP_KEY = "workbench-username-email-map-v1";
 const DEFAULT_CLOUD_CONFIG = {
   url: "https://lqkdatdtgoxztawmtigj.supabase.co",
   key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxxa2RhdGR0Z294enRhd210aWdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTM1NjIsImV4cCI6MjEwMjA2OTU2Mn0.-oSyoXCTkry5dJ5XyYrQwHk2LowPU5YAbbg-xESR3MY",
@@ -57,7 +58,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.4";
+const APP_VERSION = "1.2.5";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2999,6 +3000,10 @@ function render(scrollToTop = false) {
   $("#brand-title").textContent = state.settings.title || "我的工作台";
   document.title = `${state.settings.title || "我的工作台"}`;
   $("#topbar-date").textContent = `${formatDate(todayISO())} · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+  if (state.settings.hideMobileNav === undefined) {
+    state.settings.hideMobileNav = true;
+    scheduleSave();
+  }
   document.body.classList.toggle("dock-hidden", Boolean(state.settings.hideMobileNav));
   const dockToggle = $("#dock-toggle");
   if (dockToggle) dockToggle.textContent = state.settings.hideMobileNav ? "展开导航" : "收起导航";
@@ -3135,6 +3140,81 @@ function cloudHeaders(json = false) {
   return headers;
 }
 
+function authTokenExpired() {
+  if (!authSession?.access_token) return false;
+  if (authSession.expires_at) {
+    return Date.now() / 1000 > Number(authSession.expires_at) - 60;
+  }
+  try {
+    const payloadPart = String(authSession.access_token).split(".")[1] || "";
+    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(normalized));
+    return Date.now() / 1000 > Number(payload.exp || 0) - 60;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function refreshAuthToken() {
+  const refreshToken = authSession?.refresh_token;
+  if (!refreshToken) return false;
+  try {
+    const res = await fetch(`${cloudConfig.url}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        apikey: cloudConfig.key,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data.access_token) return false;
+    writeAuthSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || refreshToken,
+      expires_at: data.expires_at || 0,
+      user: data.user || authSession.user
+    });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+let authExpiredHandled = false;
+
+async function handleExpiredAuth() {
+  if (authExpiredHandled || !authSession) return;
+  authExpiredHandled = true;
+  clearAuthSession();
+  currentSpaceId = "personal-workbench";
+  writeLocalState();
+  render();
+  showAuthScreen();
+  toast("登录已过期，请重新登录");
+}
+
+async function cloudFetch(url, options = {}) {
+  if (authSession && authTokenExpired()) {
+    await refreshAuthToken();
+  }
+  const buildHeaders = () => ({
+    ...(options.headers || {}),
+    ...cloudHeaders(Boolean(options.body))
+  });
+  let res = await fetch(url, { ...options, headers: buildHeaders() });
+  if (res.status === 401 && authSession) {
+    const refreshed = authSession.refresh_token ? await refreshAuthToken() : false;
+    if (refreshed) {
+      res = await fetch(url, { ...options, headers: buildHeaders() });
+    } else {
+      await handleExpiredAuth();
+    }
+  }
+  return res;
+}
+
 function cloudRowId() {
   return currentSpaceId || authSession?.user?.id || "personal-workbench";
 }
@@ -3211,9 +3291,7 @@ function scheduleSave() {
 }
 
 async function loadCloudState() {
-  const res = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision,state&limit=1`, {
-    headers: cloudHeaders()
-  });
+  const res = await cloudFetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision,state&limit=1`);
   if (!res.ok) throw new Error("cloud-load-failed");
   const rows = await res.json();
   const row = Array.isArray(rows) ? rows[0] : null;
@@ -3225,9 +3303,7 @@ async function loadCloudState() {
 
 async function cloudSaveState() {
   try {
-    const check = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision&limit=1`, {
-      headers: cloudHeaders()
-    });
+    const check = await cloudFetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision&limit=1`);
     let remoteRevision = 0;
     let rowExists = false;
     if (check.ok) {
@@ -3253,19 +3329,17 @@ async function cloudSaveState() {
     };
     let res;
     if (rowExists) {
-      res = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&revision=eq.${remoteRevision}`, {
+      res = await cloudFetch(`${cloudTable()}?id=eq.${cloudRowId()}&revision=eq.${remoteRevision}`, {
         method: "PATCH",
         headers: {
-          ...cloudHeaders(true),
           Prefer: "return=representation"
         },
         body: JSON.stringify(payload)
       });
     } else {
-      res = await fetch(cloudTable(), {
+      res = await cloudFetch(cloudTable(), {
         method: "POST",
         headers: {
-          ...cloudHeaders(true),
           Prefer: "return=representation"
         },
         body: JSON.stringify({
@@ -3297,9 +3371,7 @@ async function cloudSaveState() {
 }
 
 async function pollCloudState() {
-  const res = await fetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision,state&limit=1`, {
-    headers: cloudHeaders()
-  });
+  const res = await cloudFetch(`${cloudTable()}?id=eq.${cloudRowId()}&select=id,revision,state&limit=1`);
   if (!res.ok) throw new Error("cloud-poll-failed");
   const rows = await res.json();
   const row = Array.isArray(rows) ? rows[0] : null;
@@ -3844,12 +3916,45 @@ function usernameToEmail(username) {
   return `u${suffix}@example.com`;
 }
 
+function readUsernameEmailMap() {
+  try {
+    const raw = localStorage.getItem(USERNAME_EMAIL_MAP_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function writeUsernameEmailMap(map) {
+  try {
+    localStorage.setItem(USERNAME_EMAIL_MAP_KEY, JSON.stringify(map));
+  } catch (err) {
+    // storage may be unavailable; mapping still works for this session
+  }
+}
+
+function rememberUsernameEmail(username, email) {
+  const normalized = String(username || "").trim().toLowerCase();
+  if (!normalized || !email) return;
+  const map = readUsernameEmailMap();
+  map[normalized] = email;
+  writeUsernameEmailMap(map);
+}
+
+function emailForUsername(username) {
+  const normalized = String(username || "").trim().toLowerCase();
+  const map = readUsernameEmailMap();
+  return map[normalized] || "";
+}
+
 function resolveAuthEmail() {
   const raw = authEmailValue().trim();
   const username = authUsernameValue();
   const identifier = raw || username;
   if (!identifier) return "";
-  return identifier.includes("@") ? identifier : usernameToEmail(identifier);
+  if (identifier.includes("@")) return identifier;
+  return emailForUsername(identifier) || usernameToEmail(identifier);
 }
 
 function authAdminKeyValue() {
@@ -3941,7 +4046,15 @@ async function loginAccount() {
     });
     const data = await res.json();
     if (!res.ok || !data.access_token) throw new Error(data?.error_description || data?.error || "登录失败");
-    writeAuthSession({ access_token: data.access_token, user: data.user });
+    const loggedInUsername = data.user?.user_metadata?.username || (!email.includes("@") ? authUsernameValue() : "");
+    if (loggedInUsername) rememberUsernameEmail(loggedInUsername, data.user?.email || email);
+    writeAuthSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at,
+      user: data.user
+    });
+    authExpiredHandled = false;
     currentSpaceId = data.user.id;
     await migratePersonalRowToUser();
     await loadState();
@@ -3998,7 +4111,8 @@ async function registerAccount() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error_description || data?.error || "注册失败");
       if (data.access_token) {
-        await finishAuth(data.user.id, data.access_token, data.user);
+        rememberUsernameEmail(username, email);
+        await finishAuth(data.user.id, data.access_token, data.user, data.refresh_token, data.expires_at);
         toast("注册成功");
         return;
       }
@@ -4028,6 +4142,7 @@ async function registerAccount() {
         throw new Error(confirmData?.msg || confirmData?.error_description || confirmData?.error || "自动确认失败，请检查管理密钥");
       }
       saveAdminKey(key);
+      rememberUsernameEmail(username, email);
     }
     const loginRes = await fetch(`${cloudConfig.url}/auth/v1/token?grant_type=password`, {
       method: "POST",
@@ -4041,15 +4156,22 @@ async function registerAccount() {
     if (!loginRes.ok || !loginData.access_token) {
       throw new Error("账号可能已存在，请直接登录，或检查密码后重试");
     }
-    await finishAuth(loginData.user.id, loginData.access_token, loginData.user);
+    rememberUsernameEmail(username, email);
+    await finishAuth(loginData.user.id, loginData.access_token, loginData.user, loginData.refresh_token, loginData.expires_at);
     toast("注册成功");
   } catch (err) {
     toast(err.message || "注册失败");
   }
 }
 
-async function finishAuth(userId, accessToken, user) {
-  writeAuthSession({ access_token: accessToken, user });
+async function finishAuth(userId, accessToken, user, refreshToken = "", expiresAt = 0) {
+  writeAuthSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+    user
+  });
+  authExpiredHandled = false;
   currentSpaceId = userId;
   await migratePersonalRowToUser();
   await loadState();
@@ -4073,7 +4195,7 @@ async function logoutAccount() {
 
 function emptyState() {
   return {
-    settings: { name: "", title: "我的工作台" },
+    settings: { name: "", title: "我的工作台", hideMobileNav: true },
     focus: {},
     tasks: [],
     habits: [],
@@ -4097,15 +4219,12 @@ function makeInviteCode() {
 
 async function ensureProjectState(projectId) {
   const rowId = `project:${projectId}`;
-  const check = await fetch(`${cloudTable()}?id=eq.${rowId}&select=id&limit=1`, {
-    headers: cloudHeaders()
-  });
+  const check = await cloudFetch(`${cloudTable()}?id=eq.${rowId}&select=id&limit=1`);
   const rows = check.ok ? await check.json() : [];
   if (Array.isArray(rows) && rows.length) return;
-  await fetch(cloudTable(), {
+  await cloudFetch(cloudTable(), {
     method: "POST",
     headers: {
-      ...cloudHeaders(true),
       Prefer: "return=minimal"
     },
     body: JSON.stringify({
@@ -4128,10 +4247,9 @@ async function createProject() {
     return;
   }
   try {
-    const res = await fetch(`${cloudConfig.url}/rest/v1/projects`, {
+    const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects`, {
       method: "POST",
       headers: {
-        ...cloudHeaders(true),
         Prefer: "return=representation"
       },
       body: JSON.stringify({
@@ -4165,10 +4283,9 @@ async function joinProject() {
     return;
   }
   try {
-    const res = await fetch(`${cloudConfig.url}/rest/v1/rpc/join_project_by_code`, {
+    const res = await cloudFetch(`${cloudConfig.url}/rest/v1/rpc/join_project_by_code`, {
       method: "POST",
       headers: {
-        ...cloudHeaders(true),
         Prefer: "return=representation"
       },
       body: JSON.stringify({ code })
@@ -4194,9 +4311,7 @@ async function refreshProjectList() {
     return;
   }
   try {
-    const res = await fetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code&order=created_at`, {
-      headers: cloudHeaders()
-    });
+    const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code&order=created_at`);
     const rows = await res.json();
     if (!res.ok) throw new Error("读取项目失败");
     list.innerHTML = (Array.isArray(rows) ? rows : [])
@@ -4338,7 +4453,7 @@ async function loadDemo() {
 
 async function clearData() {
   if (!confirm("确定清空全部数据吗？此操作会重置任务、习惯、课表、记录和复盘。")) return;
-  state.settings = { name: state.settings.name, title: state.settings.title };
+  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true };
   state.focus = {};
   state.tasks = [];
   state.habits = [];
