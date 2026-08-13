@@ -60,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.12";
+const APP_VERSION = "1.2.13";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -1745,9 +1745,10 @@ function renderImportModal() {
       <div class="school-actions">
         ${school === "hit"
           ? `<button class="btn" data-action="load-hit-sample">${icon("refresh")}哈工大样例</button>`
-          : `<a class="btn" href="http://jwxt.neuq.edu.cn/eams/localLogin.action" target="_blank" rel="noopener">${icon("link")}打开教务官网</a>`}
+          : `<a class="btn" href="http://jwxt.neuq.edu.cn/eams/studentCourseTable!index.action" target="_blank" rel="noopener">${icon("link")}登录后打开课表页</a>`}
       </div>
     </div>
+    ${school === "neuq" ? `<p class="import-hint">登录教务后打开课表页，用浏览器“另存为 HTML”保存，再上传这个文件；也可以直接上传 xls 课表。</p>` : ""}
 
     <div class="import-tabs" role="tablist" aria-label="导入方式">
       <button class="import-tab ${importTab === "html" ? "is-active" : ""}" data-action="import-tab" data-tab="html">粘贴网页表格</button>

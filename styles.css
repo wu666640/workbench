@@ -1771,6 +1771,17 @@ textarea:focus {
   gap: 6px;
 }
 
+.import-hint {
+  margin: 10px 2px 14px;
+  padding: 9px 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
 .import-tabs {
   display: inline-grid;
   grid-template-columns: repeat(3, auto);
