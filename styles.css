@@ -1604,6 +1604,18 @@ textarea:focus {
   margin-top: 10px;
 }
 
+.project-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-list .btn.is-active {
+  color: var(--rose);
+  border-color: rgba(217, 95, 126, 0.45);
+  background: var(--rose-soft);
+}
+
 .server-address {
   display: flex;
   align-items: center;

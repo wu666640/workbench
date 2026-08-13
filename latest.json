@@ -1,5 +1,5 @@
 {
-  "version": "1.2.6",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.6.apk",
-  "announcement": "修复创建项目时的权限报错，需要你在 Supabase SQL Editor 里重新运行一次更新后的权限脚本。手机底部导航对旧账号也默认收起。之前注册过的账号，打开一次新版后，用户名登录也会自动生效。"
+  "version": "1.2.7",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.7.apk",
+  "announcement": "用户名登录现在会直接去云端查找旧账号对应邮箱，旧账号和新设备都能直接用用户名登录。项目列表新增“私人工作台”，随时切回个人数据；项目也可以删除了。"
 }

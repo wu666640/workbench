@@ -59,9 +59,9 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.6";
+const APP_VERSION = "1.2.7";
 const GITHUB_REPO = "wu666640/workbench";
-const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
+const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
 let pendingRoomScreenshot = null;
 
@@ -2890,7 +2890,7 @@ function renderSettings() {
           <label class="field-label">邀请码
             <input id="project-code" placeholder="6 位邀请码" autocomplete="off">
           </label>
-          <div class="project-list" id="project-list">${authSession ? "" : `<span class="panel-meta">登录后可查看项目</span>`}</div>
+          <div class="project-list" id="project-list">${authSession ? `<button class="btn ${currentSpaceId === authSession.user.id ? "is-active" : ""}" data-action="switch-personal-space">${icon("user")}私人工作台</button>` : `<span class="panel-meta">登录后可查看项目</span>`}</div>
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" data-action="create-project">${icon("plus")}创建</button>
@@ -3965,13 +3965,31 @@ function applyNavDefaultOnce() {
   scheduleSave();
 }
 
-function resolveAuthEmail() {
+async function resolveAuthEmail() {
   const raw = authEmailValue().trim();
   const username = authUsernameValue();
   const identifier = raw || username;
   if (!identifier) return "";
   if (identifier.includes("@")) return identifier;
-  return emailForUsername(identifier) || usernameToEmail(identifier);
+  const remembered = emailForUsername(identifier);
+  if (remembered) return remembered;
+  if (AUTH_HELPER_URL) {
+    try {
+      const res = await fetch(AUTH_HELPER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "lookup", username: identifier })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.email) {
+        rememberUsernameEmail(identifier, data.email);
+        return data.email;
+      }
+    } catch (err) {
+      // fall through to the deterministic email
+    }
+  }
+  return usernameToEmail(identifier);
 }
 
 function authAdminKeyValue() {
@@ -4046,7 +4064,7 @@ function dismissAuthScreen() {
 
 async function loginAccount() {
   ensureCloudForAuth();
-  const email = resolveAuthEmail();
+  const email = await resolveAuthEmail();
   const password = authPasswordValue();
   if (!email || !password) {
     toast("请输入用户名和密码");
@@ -4085,7 +4103,7 @@ async function loginAccount() {
 
 async function registerAccount() {
   ensureCloudForAuth();
-  const email = resolveAuthEmail();
+  const email = await resolveAuthEmail();
   const username = authUsernameValue() || email.split("@")[0];
   const password = authPasswordValue();
   if (!email || !password) {
@@ -4332,9 +4350,15 @@ async function refreshProjectList() {
     const res = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?select=id,name,invite_code&order=created_at`);
     const rows = await res.json();
     if (!res.ok) throw new Error("读取项目失败");
-    list.innerHTML = (Array.isArray(rows) ? rows : [])
-      .map((project) => `<button class="btn" data-action="switch-project" data-id="${esc(project.id)}">${esc(project.name)}</button>`)
-      .join(" ") || `<span class="panel-meta">还没有项目</span>`;
+    const personalButton = `<button class="btn ${currentSpaceId === authSession.user.id ? "is-active" : ""}" data-action="switch-personal-space">${icon("user")}私人工作台</button>`;
+    const projectRows = (Array.isArray(rows) ? rows : [])
+      .map((project) => `
+        <div class="project-row">
+          <button class="btn" data-action="switch-project" data-id="${esc(project.id)}">${esc(project.name)}</button>
+          <button class="btn-icon btn-danger" data-action="delete-project" data-id="${esc(project.id)}" aria-label="删除项目">${icon("trash")}</button>
+        </div>`)
+      .join(" ");
+    list.innerHTML = `${personalButton} ${projectRows || `<span class="panel-meta">还没有项目</span>`}`;
   } catch (err) {
     list.innerHTML = `<span class="panel-meta">${esc(err.message || "读取项目失败")}</span>`;
   }
@@ -4351,6 +4375,38 @@ async function switchProject(id) {
   await loadState();
   render();
   toast("已切换项目");
+}
+
+async function switchPersonalSpace() {
+  try {
+    await saveNow();
+  } catch (err) {
+    // keep going even if save fails
+  }
+  currentSpaceId = authSession?.user?.id || "personal-workbench";
+  await loadState();
+  render();
+  toast("已切换到私人工作台");
+}
+
+async function deleteProject(id) {
+  if (!id) return;
+  if (!confirm("确定删除这个项目吗？项目里的共享数据会一起删除，其他成员也会失去访问权限。")) return;
+  try {
+    const projectRes = await cloudFetch(`${cloudConfig.url}/rest/v1/projects?id=eq.${id}`, {
+      method: "DELETE"
+    });
+    if (!projectRes.ok && projectRes.status !== 404) throw new Error("删除项目失败");
+    await cloudFetch(`${cloudTable()}?id=eq.project:${id}`, { method: "DELETE" });
+    if (currentSpaceId === `project:${id}`) {
+      currentSpaceId = authSession?.user?.id || "personal-workbench";
+      await loadState();
+    }
+    render();
+    toast("项目已删除");
+  } catch (err) {
+    toast(err.message || "删除项目失败");
+  }
 }
 
 function saveCloud() {
@@ -4602,6 +4658,8 @@ function handleClick(event) {
   if (action === "join-project") return joinProject();
   if (action === "refresh-projects") return refreshProjectList();
   if (action === "switch-project") return switchProject(id);
+  if (action === "switch-personal-space") return switchPersonalSpace();
+  if (action === "delete-project") return deleteProject(id);
   if (action === "save-cloud") return saveCloud();
   if (action === "clear-cloud") return clearCloud();
   if (action === "enable-notifications") return enableNotifications();
