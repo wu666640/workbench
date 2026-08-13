@@ -60,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.9";
+const APP_VERSION = "1.2.10";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -1881,7 +1881,10 @@ function renderTasks() {
         <h1>待办</h1>
         <p>把要完成的事放在这里，按优先级和日期推进。</p>
       </div>
-      <span class="panel-meta">${undone} 件未完成</span>
+      <div class="page-actions">
+        <span class="panel-meta">${undone} 件未完成</span>
+        <button class="btn btn-compact" data-action="clear-page" data-page="tasks">${icon("trash")}一键清空</button>
+      </div>
     </div>
 
     <div class="task-editor">
@@ -1939,7 +1942,10 @@ function renderHabits() {
         <h1>习惯</h1>
         <p>每天做一点点，让好习惯自己长出来。</p>
       </div>
-      <span class="panel-meta">今天 ${doneToday}/${state.habits.length}</span>
+      <div class="page-actions">
+        <span class="panel-meta">今天 ${doneToday}/${state.habits.length}</span>
+        <button class="btn btn-compact" data-action="clear-page" data-page="habits">${icon("trash")}一键清空</button>
+      </div>
     </div>
 
     <div class="form-grid">
@@ -2032,6 +2038,7 @@ function renderSchedule() {
           </select>
         </label>
         <button class="btn" data-action="open-import">${icon("upload")}从官网导入</button>
+        <button class="btn btn-compact" data-action="clear-page" data-page="schedule">${icon("trash")}一键清空</button>
       </div>
     </div>
 
@@ -2102,7 +2109,10 @@ function renderNotes() {
         <h1>记录</h1>
         <p>灵感、想法、课业摘录，都可以带图留住。</p>
       </div>
-      <span class="panel-meta">${state.notes.length} 条</span>
+      <div class="page-actions">
+        <span class="panel-meta">${state.notes.length} 条</span>
+        <button class="btn btn-compact" data-action="clear-page" data-page="notes">${icon("trash")}一键清空</button>
+      </div>
     </div>
 
     <div class="task-editor">
@@ -2141,7 +2151,10 @@ function renderReview() {
         <h1>复盘</h1>
         <p>每周停下来看一次：做成了什么、卡在哪里、下周怎么走。</p>
       </div>
-      <span class="panel-meta">${currentWeek}</span>
+      <div class="page-actions">
+        <span class="panel-meta">${currentWeek}</span>
+        <button class="btn btn-compact" data-action="clear-page" data-page="reviews">${icon("trash")}一键清空</button>
+      </div>
     </div>
 
     <div class="form-grid review-form">
@@ -2205,6 +2218,7 @@ function renderAssets() {
       </div>
       <div class="page-actions">
         <span class="panel-meta">${state.assets.length} 张图片</span>
+        <button class="btn btn-compact" data-action="clear-page" data-page="assets">${icon("trash")}一键清空</button>
         <button class="btn btn-primary" data-action="choose-asset">${icon("upload")}上传图片</button>
       </div>
     </div>
@@ -2787,6 +2801,7 @@ function renderRooms() {
       <div class="page-actions">
         <span class="panel-meta">${state.rooms.length} 天记录</span>
         <button class="btn" data-action="locate-room-time">${icon("clock")}定位当前时段</button>
+        <button class="btn btn-compact" data-action="clear-page" data-page="rooms">${icon("trash")}一键清空</button>
         <button class="btn btn-primary" data-action="open-room-screenshot">${icon("upload")}截图导入</button>
       </div>
     </div>
@@ -4629,6 +4644,25 @@ async function clearData() {
   toast("数据已清空");
 }
 
+function clearPageData(page) {
+  const map = {
+    tasks: { key: "tasks", label: "全部待办" },
+    habits: { key: "habits", label: "全部习惯" },
+    schedule: { key: "schedule", label: "全部课表" },
+    notes: { key: "notes", label: "全部记录" },
+    assets: { key: "assets", label: "全部资料图片" },
+    rooms: { key: "rooms", label: "全部空教室记录" },
+    reviews: { key: "reviews", label: "全部复盘" }
+  };
+  const target = map[page];
+  if (!target) return;
+  if (!confirm(`确定清空${target.label}吗？此操作不可撤销。`)) return;
+  state[target.key] = [];
+  scheduleSave();
+  render();
+  toast(`${target.label}已清空`);
+}
+
 function handleClick(event) {
   const el = event.target.closest("[data-action]");
   if (!el) return;
@@ -4761,6 +4795,7 @@ function handleClick(event) {
   if (action === "save-focus") return saveFocus();
   if (action === "load-demo") return loadDemo();
   if (action === "clear-data") return clearData();
+  if (action === "clear-page") return clearPageData(el.dataset.page);
   if (action === "cancel-edit") {
     editingTaskId = null;
     editingHabitId = null;

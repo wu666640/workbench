@@ -1,5 +1,5 @@
 {
-  "version": "1.2.9",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.9.apk",
-  "announcement": "修复项目列表可能整个不显示的问题：即使数据库新字段还没更新，私人工作台和项目也会正常显示。"
+  "version": "1.2.10",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.10.apk",
+  "announcement": "待办、习惯、课表、记录、资料库、自习室、复盘页面都新增“一键清空”按钮，确认后才会清空，防止误操作。"
 }
