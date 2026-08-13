@@ -1051,6 +1051,44 @@ textarea:focus {
   padding: 0;
 }
 
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-compact {
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: 0.76rem;
+}
+
+.room-filter-panel {
+  margin-bottom: 14px;
+}
+
+.room-filter-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.room-filter-form .form-actions {
+  justify-content: flex-start;
+}
+
+.room-filter-result {
+  margin-top: 12px;
+}
+
+.room-filter-count {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 620;
+}
+
 .page-head {
   display: flex;
   align-items: flex-end;
@@ -1954,6 +1992,10 @@ textarea:focus {
   }
 
   .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .room-filter-form {
     grid-template-columns: 1fr;
   }
 

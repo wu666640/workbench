@@ -40,6 +40,9 @@ let importFileText = "";
 let importFileName = "";
 let openRoomPeriods = new Set();
 let roomAutoDone = false;
+let roomFilterStart = 1;
+let roomFilterEnd = 12;
+let roomFilterDate = "";
 let syncStatus = "connecting";
 let saveTimer = null;
 let lastLocalStorageWarning = 0;
@@ -54,7 +57,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.2";
+const APP_VERSION = "1.2.3";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d3ed4c08ecc874b30abd3--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 let pendingRoomScreenshot = null;
@@ -1799,13 +1802,19 @@ function renderToday() {
       ${rooms ? `<section class="panel rooms-panel">
         <div class="panel-head">
           <h2>今日空教室</h2>
-          <span class="panel-meta">${Object.keys(rooms.periods || {}).length} 个时段</span>
+          <div class="panel-head-actions">
+            <span class="panel-meta">${Object.keys(rooms.periods || {}).length} 个时段</span>
+            <button class="btn btn-compact" data-action="goto-rooms-all-day">${icon("clock")}全天无课</button>
+          </div>
         </div>
         <div class="rooms-compact">${roomPeriodsHtml(rooms.periods, rooms.id, roomOpenSet)}</div>
       </section>` : `<section class="panel rooms-panel">
         <div class="panel-head">
           <h2>今日空教室</h2>
-          <span class="panel-meta">未导入</span>
+          <div class="panel-head-actions">
+            <span class="panel-meta">未导入</span>
+            <button class="btn btn-compact" data-action="goto-rooms-all-day">${icon("clock")}全天无课</button>
+          </div>
         </div>
         <div class="empty-note">今天还没导入空教室，去“自习室”粘贴即可。</div>
       </section>`}
@@ -2285,6 +2294,105 @@ function roomPeriodsHtml(periods, entryId = "", openSet = null) {
     .join("");
 }
 
+function roomPeriodNumbers(label) {
+  const numbers = String(label || "").match(/\d+/g) || [];
+  const first = Number(numbers[0]);
+  const last = Number(numbers[1] || numbers[0]);
+  return { first, last };
+}
+
+function roomFreeRoomsForPeriod(entry, periodNumber) {
+  const free = new Set();
+  for (const [label, rooms] of Object.entries(entry?.periods || {})) {
+    const { first, last } = roomPeriodNumbers(label);
+    if (first <= periodNumber && periodNumber <= last) {
+      rooms.forEach((room) => free.add(room));
+    }
+  }
+  return free;
+}
+
+function roomPeriodHasData(entry, periodNumber) {
+  return Object.keys(entry?.periods || {}).some((label) => {
+    const { first, last } = roomPeriodNumbers(label);
+    return first <= periodNumber && periodNumber <= last;
+  });
+}
+
+function roomsFreeInRange(entry, start, end) {
+  if (!entry) return { missing: [], rooms: [] };
+  let result = null;
+  const missing = [];
+  for (let period = start; period <= end; period += 1) {
+    if (!roomPeriodHasData(entry, period)) {
+      missing.push(period);
+      continue;
+    }
+    const free = roomFreeRoomsForPeriod(entry, period);
+    if (result === null) {
+      result = new Set(free);
+    } else {
+      result = new Set([...result].filter((room) => free.has(room)));
+    }
+  }
+  return {
+    missing,
+    rooms: result ? Array.from(result).sort() : []
+  };
+}
+
+function roomRangeLabel(start, end) {
+  const startTime = NEUQ_PERIODS[start]?.[0] || "";
+  const endTime = NEUQ_PERIODS[end]?.[1] || "";
+  return `第 ${start}~${end} 节${startTime && endTime ? `（${startTime}~${endTime}）` : ""}`;
+}
+
+function roomFilterResultHtml(entry) {
+  if (!entry) return `<div class="empty-note">还没有空教室记录。</div>`;
+  const { missing, rooms } = roomsFreeInRange(entry, roomFilterStart, roomFilterEnd);
+  if (missing.length) {
+    return `<div class="empty-note">所选区间缺少第 ${missing.join("、")} 节的空教室数据，暂时无法判断。</div>`;
+  }
+  if (!rooms.length) {
+    return `<div class="empty-note">${roomRangeLabel(roomFilterStart, roomFilterEnd)}没有同时空闲的教室。</div>`;
+  }
+  return `
+    <div class="room-filter-count">${esc(formatDate(entry.date))} · ${esc(roomRangeLabel(roomFilterStart, roomFilterEnd))} · ${rooms.length} 间</div>
+    <div class="room-chips">${rooms.map((room) => `<button class="room-chip" data-action="copy-room" data-room="${esc(room)}">${esc(room)}</button>`).join("")}</div>
+  `;
+}
+
+function applyRoomFilter() {
+  const start = Number($("#room-filter-start")?.value) || 1;
+  const end = Number($("#room-filter-end")?.value) || 12;
+  const date = $("#room-filter-date")?.value || "";
+  if (start > end) {
+    toast("开始节次不能晚于结束节次");
+    return;
+  }
+  roomFilterStart = start;
+  roomFilterEnd = end;
+  if (date) roomFilterDate = date;
+  render();
+  toast(`已筛选${roomRangeLabel(start, end)}`);
+}
+
+function setRoomAllDay() {
+  roomFilterStart = 1;
+  roomFilterEnd = 12;
+  const date = $("#room-filter-date")?.value || roomFilterDate;
+  if (date) roomFilterDate = date;
+  render();
+  toast("已显示全天无课教室");
+}
+
+function gotoRoomsAllDay() {
+  roomFilterStart = 1;
+  roomFilterEnd = 12;
+  currentView = "rooms";
+  render(true);
+}
+
 function roomEntryCard(entry, openSet) {
   return `<article class="room-entry">
     <div class="room-entry-head">
@@ -2631,6 +2739,15 @@ function locateRoomTime() {
 function renderRooms() {
   const sorted = [...state.rooms].sort((a, b) => b.date.localeCompare(a.date));
   const openSet = roomOpenSetFor(sorted[0]);
+  if (!roomFilterDate || !state.rooms.some((entry) => entry.date === roomFilterDate)) {
+    roomFilterDate = sorted[0]?.date || "";
+  }
+  const filterEntry = state.rooms.find((entry) => entry.date === roomFilterDate) || sorted[0] || null;
+  const periodOption = (number, selected) => `<option value="${number}"${selected ? " selected" : ""}>第 ${number} 节</option>`;
+  const numbers = Array.from({ length: 12 }, (_, index) => index + 1);
+  const startOptions = numbers.map((number) => periodOption(number, number === roomFilterStart)).join("");
+  const endOptions = numbers.map((number) => periodOption(number, number === roomFilterEnd)).join("");
+  const dateOptions = sorted.map((entry) => `<option value="${esc(entry.date)}" ${entry.date === roomFilterDate ? "selected" : ""}>${esc(formatDate(entry.date))}</option>`).join("");
   return `
     <div class="page-head">
       <div>
@@ -2644,6 +2761,31 @@ function renderRooms() {
       </div>
     </div>
     <input id="room-screenshot" type="file" accept="image/*" hidden>
+
+    ${sorted.length ? `
+    <section class="panel room-filter-panel">
+      <div class="panel-head">
+        <h2>区间筛选空教室</h2>
+        <span class="panel-meta">${filterEntry ? esc(formatDate(filterEntry.date)) : "无记录"}</span>
+      </div>
+      <div class="room-filter-form">
+        <label class="field-label">日期
+          <select id="room-filter-date">${dateOptions}</select>
+        </label>
+        <label class="field-label">从
+          <select id="room-filter-start">${startOptions}</select>
+        </label>
+        <label class="field-label">到
+          <select id="room-filter-end">${endOptions}</select>
+        </label>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="apply-room-filter">${icon("check")}显示</button>
+          <button class="btn" data-action="set-room-all-day">${icon("clock")}全天无课</button>
+        </div>
+      </div>
+      <div class="room-filter-result">${roomFilterResultHtml(filterEntry)}</div>
+    </section>
+    ` : ""}
 
     <div class="form-grid room-editor">
       <div class="form-row">
@@ -4267,6 +4409,9 @@ function handleClick(event) {
   if (action === "delete-asset") return deleteAsset(id);
   if (action === "save-room") return saveRoomEntry();
   if (action === "locate-room-time") return locateRoomTime();
+  if (action === "apply-room-filter") return applyRoomFilter();
+  if (action === "set-room-all-day") return setRoomAllDay();
+  if (action === "goto-rooms-all-day") return gotoRoomsAllDay();
   if (action === "toggle-room-period") {
     const key = `${el.dataset.entry}:${el.dataset.key}`;
     if (openRoomPeriods.has(key)) openRoomPeriods.delete(key);
