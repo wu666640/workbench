@@ -1705,7 +1705,7 @@ textarea:focus {
 
 .import-school {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   margin: 16px 0 14px;
@@ -1740,6 +1740,35 @@ textarea:focus {
 .school-copy span {
   color: var(--faint);
   font-size: 0.76rem;
+}
+
+.school-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.school-option {
+  padding: 7px 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 620;
+}
+
+.school-option.is-active {
+  color: var(--day);
+  background: var(--rose-soft);
+}
+
+.school-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .import-tabs {
@@ -2062,6 +2091,8 @@ textarea:focus {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
+  .import-school .school-switch,
+  .import-school .school-actions,
   .import-school .btn {
     grid-column: 1 / -1;
   }

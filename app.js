@@ -60,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.11";
+const APP_VERSION = "1.2.12";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -82,6 +82,14 @@ const NEUQ_PERIODS = {
   11: ["20:25", "21:10"],
   12: ["21:15", "22:00"]
 };
+
+const HIT_SAMPLE_CSV = [
+  "课程名称,星期,开始节数,结束节数,老师,地点,周数",
+  "微积分D（2）,一,1,2,史晓冉,B51,2-15",
+  "习近平新时代中国特色社会主义思想概论,一,5,6,刘文超,B51,3-12",
+  "生命科学基础,二,5,6,张凤伟,B41,\"10-12,13\"",
+  "实用形象礼仪,日,9,10,谢琦,B107,\"7单,8,10,11\""
+].join("\n");
 
 function periodNumberForTime(value, kind) {
   const entries = Object.entries(NEUQ_PERIODS);
@@ -1062,8 +1070,8 @@ function courseColor(title) {
 function parseCourseSegment(segment, weekday, periodLabel, periodTable = NEUQ_PERIODS) {
   let ranges = periodRanges(segment, true);
   if (!ranges.length) {
-    const periodNumber = periodNumberFromLabel(periodLabel);
-    if (periodNumber) ranges = [[periodNumber, periodNumber]];
+    const labelRange = periodRangeFromLabel(periodLabel);
+    if (labelRange) ranges = [labelRange];
   }
   if (!ranges.length) return [];
   const lines = segment
@@ -1137,7 +1145,7 @@ function isWeekLocationOnly(value) {
 function parseCourseCell(raw, weekday, periodLabel, periodTable = NEUQ_PERIODS) {
   const text = cleanCellText(raw);
   if (!text || text === "&nbsp;" || weekday < 0) return [];
-  if (periodRanges(text, true).length === 0 && !periodNumberFromLabel(periodLabel)) return [];
+  if (periodRanges(text, true).length === 0 && !periodRangeFromLabel(periodLabel)) return [];
   const segments = text
     .split(/\n\s*\n/)
     .map((segment) => segment.trim())
@@ -1279,7 +1287,11 @@ function parseScheduleHTML(html) {
       for (const header of headerCells) {
         const cell = map[header.cellIndex];
         const periodLabel = map[0] ? map[0].textContent : "";
-        if (cell) courses.push(...parseCourseCell(cell.innerHTML, header.weekday, periodLabel, periodTable));
+        const periodLabelCell =
+          !periodRangeFromLabel(periodLabel) && map[1] && periodRangeFromLabel(map[1].textContent)
+            ? map[1].textContent
+            : periodLabel;
+        if (cell) courses.push(...parseCourseCell(cell.innerHTML, header.weekday, periodLabelCell, periodTable));
       }
     }
     return dedupeCourses(courses);
@@ -1290,9 +1302,13 @@ function parseScheduleHTML(html) {
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
       const cells = Array.from(rows[rowIndex].cells);
       const periodLabel = cells[0] ? cleanCellText(cells[0].innerHTML) : "";
+      const periodLabelCell =
+        !periodRangeFromLabel(periodLabel) && cells[1] && periodRangeFromLabel(cells[1].textContent)
+          ? cleanCellText(cells[1].innerHTML)
+          : periodLabel;
       for (let index = 1; index <= 7; index += 1) {
         const cell = cells[index];
-        if (cell) courses.push(...parseCourseCell(cell.innerHTML, index - 1, periodLabel, periodTable));
+        if (cell) courses.push(...parseCourseCell(cell.innerHTML, index - 1, periodLabelCell, periodTable));
       }
     }
   }
@@ -1312,6 +1328,56 @@ function detectSemesterFromRows(rows, fileName) {
   const fileMatch = String(fileName || "").match(/(20\d{2}).*?(春季|夏季|秋季|冬季)?\s*学期/);
   if (fileMatch) return `${fileMatch[1]}${fileMatch[2] || ""}学期`;
   return "未命名学期";
+}
+
+function parseHitCourseV2(cellText, weekday, startPeriod, endPeriod) {
+  const text = cleanCellText(cellText);
+  if (!text || text === "&nbsp;") return [];
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const blocks = [];
+  let current = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const next = tokens[index + 1] || "";
+    if (current.length && next.includes("[") && !token.includes("[")) {
+      blocks.push(current);
+      current = [token];
+    } else {
+      current.push(token);
+    }
+  }
+  if (current.length) blocks.push(current);
+
+  const courses = [];
+  for (const block of blocks) {
+    const title = block[0];
+    if (!title) continue;
+    const content = block.slice(1).join(" ");
+    const weekMatches = Array.from(content.matchAll(/\[([^\]]+)\](单|双)?周?/g));
+    const weeks = weekMatches.map((match) => `${normalizeWeeks(match[1])}${match[2] || ""}`).join(",");
+    const teacherMatches = Array.from(content.matchAll(/([\u4e00-\u9fa5·A-Za-z]{1,16})(?=\[)/g));
+    const teacher = Array.from(new Set(teacherMatches.map((match) => match[1]))).join("，");
+    const withoutBrackets = content.replace(/\[[^\]]+\](单|双)?周?/g, " ");
+    const locations = [];
+    for (const chunk of withoutBrackets.split(/[，,;；]+/)) {
+      const location = extractLocation(chunk);
+      if (location && !locations.includes(location)) locations.push(location);
+    }
+    const times = periodRangeTimes(startPeriod, endPeriod);
+    courses.push({
+      title,
+      weekday,
+      start: times.start,
+      end: times.end,
+      startPeriod,
+      endPeriod,
+      location: locations.join("、"),
+      teacher,
+      weeks,
+      color: courseColor(title)
+    });
+  }
+  return dedupeCourses(courses);
 }
 
 function parseNeuqCourseLine(line, weekday, startPeriod, endPeriod) {
@@ -1438,10 +1504,14 @@ function findWeekdayHeaderRow(rows) {
   return null;
 }
 
-function parseGridXlsRows(rows, merges, fileName, sheetName) {
+function parseGridXlsRows(rows, merges, fileName, sheetName, school) {
   const semester = detectSemesterFromRows(rows, fileName) || detectSemesterFromRows(rows, sheetName) || "未命名学期";
   const header = findWeekdayHeaderRow(rows);
   if (!header) return { semester, courses: [] };
+  const hasNeuqCode = rows.some((row) =>
+    (row || []).some((cell) => /\(\d{10,}\.\d{2}\)/.test(cleanCellText(cell)))
+  );
+  const useHit = school === "hit" || (school !== "neuq" && !hasNeuqCode);
   const courses = [];
   for (let rowIndex = header.rowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] || [];
@@ -1457,7 +1527,9 @@ function parseGridXlsRows(rows, merges, fileName, sheetName) {
       let endPeriod = labelEnd;
       const merge = (merges || []).find((item) => item.s.r === rowIndex && item.s.c === colIndex);
       if (merge) endPeriod = startPeriod + (merge.e.r - merge.s.r);
-      const parsed = parseHitCourseCell(cell, weekday, startPeriod, endPeriod);
+      const parsed = useHit
+        ? parseHitCourseV2(cell, weekday, startPeriod, endPeriod)
+        : parseHitCourseCell(cell, weekday, startPeriod, endPeriod);
       for (const course of parsed) {
         course.semester = semester;
         courses.push(course);
@@ -1472,12 +1544,13 @@ function parseXlsSchedule(buffer, fileName) {
     return { semester: "", courses: [], error: "缺少表格解析组件" };
   }
   const workbook = XLSX.read(buffer, { type: "array" });
+  const school = state.settings.scheduleSchool || "";
   let best = null;
   let semester = "";
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-    const parsed = parseGridXlsRows(rows, sheet["!merges"] || [], fileName, sheetName);
+    const parsed = parseGridXlsRows(rows, sheet["!merges"] || [], fileName, sheetName, school);
     if (!semester) {
       const found = detectSemesterFromRows(rows, fileName) || detectSemesterFromRows(rows, sheetName);
       if (found) semester = found;
@@ -1590,7 +1663,29 @@ function parseImportText(text, kind) {
   return kind === "csv" ? parseWakeUpCSV(raw) : parseScheduleHTML(raw);
 }
 
+function scheduleSchoolLabel(school) {
+  return school === "hit" ? "哈尔滨工业大学" : "东北大学秦皇岛分校";
+}
+
+function setScheduleSchool(school) {
+  state.settings.scheduleSchool = school === "hit" ? "hit" : "neuq";
+  scheduleSave();
+  rerenderImport();
+  toast(`已切换为${scheduleSchoolLabel(state.settings.scheduleSchool)}`);
+}
+
+function loadHitSample() {
+  importTab = "csv";
+  importDraft = HIT_SAMPLE_CSV;
+  importFileText = "";
+  importFileName = "";
+  pendingImport = parseImportText(importDraft, "csv");
+  rerenderImport();
+  toast("已载入哈工大样例");
+}
+
 function renderImportModal() {
+  const school = state.settings.scheduleSchool || "neuq";
   const preview = pendingImport.length
     ? `<div class="import-summary">
         <strong>解析到 ${pendingImport.length} 条课程${pendingImport[0]?.semester ? `（${esc(pendingImport[0].semester)}）` : ""}</strong>
@@ -1640,10 +1735,18 @@ function renderImportModal() {
     <div class="import-school">
       <div class="school-badge">${icon("calendar")}</div>
       <div class="school-copy">
-        <strong>东北大学秦皇岛分校</strong>
-        <span>教务系统 · EAMS</span>
+        <strong>${scheduleSchoolLabel(school)}</strong>
+        <span>${school === "hit" ? "教务系统 · 本科教学" : "教务系统 · EAMS"}</span>
       </div>
-      <a class="btn" href="http://jwxt.neuq.edu.cn/eams/localLogin.action" target="_blank" rel="noopener">${icon("link")}打开教务官网</a>
+      <div class="school-switch">
+        <button class="school-option ${school !== "hit" ? "is-active" : ""}" data-action="set-school" data-school="neuq">东北大学秦皇岛分校</button>
+        <button class="school-option ${school === "hit" ? "is-active" : ""}" data-action="set-school" data-school="hit">哈尔滨工业大学</button>
+      </div>
+      <div class="school-actions">
+        ${school === "hit"
+          ? `<button class="btn" data-action="load-hit-sample">${icon("refresh")}哈工大样例</button>`
+          : `<a class="btn" href="http://jwxt.neuq.edu.cn/eams/localLogin.action" target="_blank" rel="noopener">${icon("link")}打开教务官网</a>`}
+      </div>
     </div>
 
     <div class="import-tabs" role="tablist" aria-label="导入方式">
@@ -4770,6 +4873,8 @@ function handleClick(event) {
     rerenderImport();
     return;
   }
+  if (action === "set-school") return setScheduleSchool(el.dataset.school);
+  if (action === "load-hit-sample") return loadHitSample();
   if (action === "confirm-import") return confirmImport();
   if (action === "set-icon") {
     selectedHabitIcon = el.dataset.icon;

@@ -1,5 +1,5 @@
 {
-  "version": "1.2.11",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.11.apk",
-  "announcement": "修复东北大学 xls 课表识别：自动读取真正的课表工作表，课程按两节合并成一个大课块，同一格多门课也能正确拆开。"
+  "version": "1.2.12",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.2.12.apk",
+  "announcement": "课表导入新增学校选择：东北大学秦皇岛分校 / 哈尔滨工业大学，选择会自动保存。哈工大 xls 课表按两节合并、老师周次地点都能识别，还带哈工大样例。"
 }
