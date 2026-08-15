@@ -1,4 +1,4 @@
-const CACHE_NAME = "workbench-pwa-v22";
+const CACHE_NAME = "workbench-pwa-v23";
 const SHELL = [
   "./",
   "./index.html",

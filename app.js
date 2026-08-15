@@ -38,6 +38,7 @@ let editingReviewId = null;
 let editingAnniversaryId = null;
 let selectedHabitIcon = "water";
 let noteImageUrl = "";
+let anniversaryImageUrl = "";
 let pendingImport = [];
 let importTab = "html";
 let importDraft = "";
@@ -63,7 +64,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2709,7 +2710,16 @@ function anniversaryCard(item) {
   const next = anniversaryNext(item);
   const daysLeft = next ? Math.max(0, Math.round((next.date - new Date(`${todayISO()}T00:00:00`)) / 86400000)) : null;
   const intervals = (item.intervals || []).join("、");
+  const showDay = item.dayTextEnabled !== false && days != null && days >= 0;
+  const dayText = showDay ? `第 ${days} 天` : "";
+  const photo = item.image
+    ? `<div class="anniv-photo ${dayText ? "has-day" : ""}">
+        ${dayText ? `<span class="anniv-photo-text">${esc(item.name)} · ${esc(dayText)}</span>` : ""}
+        <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+      </div>`
+    : "";
   return `<article class="panel anniv-card">
+    ${photo}
     <div class="anniv-main">
       <strong>${esc(item.name)}</strong>
       <span class="panel-meta">起点 ${esc(formatDate(item.date))}${days != null ? ` · ${days >= 0 ? `第 ${days} 天` : `还有 ${-days} 天开始`}` : ""}</span>
@@ -2723,6 +2733,7 @@ function anniversaryCard(item) {
       ${item.yearly ? "每年提醒" : "不按年提醒"}${intervals ? ` · 间隔 ${esc(intervals)} 天` : ""}${item.remindEnabled ? ` · 通知 ${esc(item.remindTime || "08:00")}` : " · 未开通知"}
     </div>
     <div class="form-actions">
+      <button class="btn btn-compact" data-action="toggle-anniv-day-text" data-id="${esc(item.id)}">${icon(item.dayTextEnabled !== false ? "x" : "check")}${item.dayTextEnabled !== false ? "隐藏天数" : "显示天数"}</button>
       <button class="btn-icon" data-action="edit-anniversary" data-id="${esc(item.id)}" aria-label="编辑">${icon("edit")}</button>
       <button class="btn-icon btn-danger" data-action="delete-anniversary" data-id="${esc(item.id)}" aria-label="删除">${icon("trash")}</button>
     </div>
@@ -2768,6 +2779,16 @@ function renderAnniversaries() {
         <label class="switch-line"><input type="checkbox" id="anniv-yearly"> 每年提醒（生日、周年）</label>
         <label class="switch-line"><input type="checkbox" id="anniv-remind" checked> 开启通知</label>
       </div>
+      <div class="form-row wide">
+        <label class="field-label">纪念日图片
+          <div class="upload-zone">
+            <button class="btn" data-action="choose-anniv-image">${icon("upload")}选择图片</button>
+            ${anniversaryImageUrl ? `<button class="btn-icon btn-danger" data-action="clear-anniv-image" aria-label="移除图片">${icon("x")}</button>` : ""}
+            <input id="anniv-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+            <img id="anniv-image-preview" class="upload-preview ${anniversaryImageUrl ? "is-visible" : ""}" src="${esc(anniversaryImageUrl)}" alt="纪念日图片预览">
+          </div>
+        </label>
+      </div>
       <div class="form-actions">
         <button class="btn btn-primary" data-action="save-anniversary">${icon("plus")}${editingAnniversaryId ? "保存修改" : "添加纪念日"}</button>
         ${editingAnniversaryId ? `<button class="btn" data-action="cancel-anniversary">${icon("x")}取消</button>` : ""}
@@ -2793,7 +2814,8 @@ function saveAnniversary() {
     yearly: Boolean($("#anniv-yearly")?.checked),
     intervals: parseAnniversaryIntervals($("#anniv-intervals")?.value),
     remindEnabled: Boolean($("#anniv-remind")?.checked),
-    remindTime: $("#anniv-remind-time")?.value || "08:00"
+    remindTime: $("#anniv-remind-time")?.value || "08:00",
+    image: anniversaryImageUrl
   };
   if (editingAnniversaryId) {
     const item = state.anniversaries.find((entry) => entry.id === editingAnniversaryId);
@@ -2802,6 +2824,7 @@ function saveAnniversary() {
     state.anniversaries.unshift({ id: uid("anniv"), ...payload });
   }
   editingAnniversaryId = null;
+  anniversaryImageUrl = "";
   scheduleSave();
   scheduleRemindersSoon();
   render();
@@ -2812,6 +2835,7 @@ function startEditAnniversary(id) {
   const item = state.anniversaries.find((entry) => entry.id === id);
   if (!item) return;
   editingAnniversaryId = id;
+  anniversaryImageUrl = item.image || "";
   render();
   $("#anniv-name").value = item.name;
   $("#anniv-date").value = item.date || "";
@@ -2820,6 +2844,15 @@ function startEditAnniversary(id) {
   $("#anniv-remind").checked = item.remindEnabled !== false;
   $("#anniv-remind-time").value = item.remindTime || "08:00";
   $("#anniv-name").focus();
+}
+
+function toggleAnniversaryDayText(id) {
+  const item = state.anniversaries.find((entry) => entry.id === id);
+  if (!item) return;
+  item.dayTextEnabled = item.dayTextEnabled === false;
+  scheduleSave();
+  render();
+  toast(item.dayTextEnabled === false ? "已隐藏天数文字" : "已显示天数文字");
 }
 
 function deleteAnniversary(id) {
@@ -5559,6 +5592,16 @@ function handleClick(event) {
   if (action === "save-anniversary") return saveAnniversary();
   if (action === "edit-anniversary") return startEditAnniversary(id);
   if (action === "delete-anniversary") return deleteAnniversary(id);
+  if (action === "toggle-anniv-day-text") return toggleAnniversaryDayText(id);
+  if (action === "choose-anniv-image") {
+    $("#anniv-image")?.click();
+    return;
+  }
+  if (action === "clear-anniv-image") {
+    anniversaryImageUrl = "";
+    render();
+    return;
+  }
   if (action === "cancel-anniversary") {
     editingAnniversaryId = null;
     render();
@@ -5683,6 +5726,24 @@ document.addEventListener("change", async (event) => {
   }
   if (event.target.id === "asset-image") {
     uploadAssetFiles(event.target.files);
+    event.target.value = "";
+    return;
+  }
+  if (event.target.id === "anniv-image") {
+    const file = event.target.files[0];
+    if (!file) return;
+    setSync("syncing");
+    uploadImage(file)
+      .then((url) => {
+        anniversaryImageUrl = url;
+        setSync("synced");
+        render();
+        toast("纪念日图片已上传");
+      })
+      .catch(() => {
+        setSync("offline");
+        toast("图片上传失败，请重试");
+      });
     event.target.value = "";
     return;
   }
