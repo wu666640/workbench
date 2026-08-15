@@ -1,5 +1,5 @@
 const state = {
-  settings: { name: "", title: "我的工作台", hideMobileNav: true },
+  settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00" },
   focus: {},
   tasks: [],
   habits: [],
@@ -60,7 +60,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.2.14";
+const APP_VERSION = "1.3.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -277,6 +277,23 @@ function collectReminders() {
           id: `habit-${habit.id}-${dateISO}`,
           title: habit.name,
           body: `习惯提醒 · ${habit.time}`,
+          at
+        });
+      }
+    }
+  }
+  if (state.settings.dailyPushEnabled && state.settings.dailyPushTime) {
+    for (let day = 0; day < 7; day += 1) {
+      const cursor = new Date();
+      cursor.setDate(cursor.getDate() + day);
+      const dateISO = isoFor(cursor);
+      const at = localDateMs(dateISO, state.settings.dailyPushTime);
+      if (at > now) {
+        const quote = dailyQuote(dateISO);
+        items.push({
+          id: `daily-${dateISO}`,
+          title: "每日一句",
+          body: `${quote.zh} ${quote.en}`,
           at
         });
       }
@@ -1916,6 +1933,187 @@ function noteCard(note) {
   </article>`;
 }
 
+const DAILY_QUOTE_KEY = "workbench-daily-quote-v1";
+const DAILY_NEWS_KEY = "workbench-daily-news-v1";
+const DAILY_NEWS_URL = "https://60s.viki.moe/v2/60s";
+const DAILY_QUOTES = [
+  { zh: "博观而约取，厚积而薄发。", en: "Learn widely, choose what matters, and let deep accumulation find its moment.", author: "苏轼" },
+  { zh: "知者不惑，仁者不忧，勇者不惧。", en: "The wise are free from doubt, the humane from anxiety, the brave from fear.", author: "《论语》" },
+  { zh: "路漫漫其修远兮，吾将上下而求索。", en: "The road ahead is long and far; I will search high and low.", author: "屈原" },
+  { zh: "纸上得来终觉浅，绝知此事要躬行。", en: "What you get from books is shallow; real understanding demands practice.", author: "陆游" },
+  { zh: "海内存知己，天涯若比邻。", en: "A true friend stays close even when the world separates you.", author: "王勃" },
+  { zh: "千淘万漉虽辛苦，吹尽狂沙始到金。", en: "After endless washing, only gold remains among the sand.", author: "刘禹锡" },
+  { zh: "读书破万卷，下笔如有神。", en: "Read ten thousand volumes, and your writing will flow as if inspired.", author: "杜甫" },
+  { zh: "勿以恶小而为之，勿以善小而不为。", en: "Do not do evil because it is small; do not leave good undone because it is small.", author: "刘备" },
+  { zh: "锲而不舍，金石可镂。", en: "With relentless effort, even metal and stone can be carved.", author: "《荀子》" },
+  { zh: "会当凌绝顶，一览众山小。", en: "Climb to the summit, and all other mountains grow small.", author: "杜甫" },
+  { zh: "非淡泊无以明志，非宁静无以致远。", en: "Without calm detachment, ambition blurs; without quiet, vision cannot reach far.", author: "诸葛亮" },
+  { zh: "宝剑锋从磨砺出，梅花香自苦寒来。", en: "A sharp blade comes from grinding; plum blossom fragrance comes from bitter cold.", author: "古语" },
+  { zh: "天生我材必有用。", en: "Heaven gave me talents; they will find their use.", author: "李白" },
+  { zh: "苟日新，日日新，又日新。", en: "If you can renew yourself one day, renew yourself anew each day.", author: "《礼记》" },
+  { zh: "山重水复疑无路，柳暗花明又一村。", en: "Hills and rivers may seem to block the way, yet a bright village lies beyond the willows.", author: "陆游" },
+  { zh: "少年易老学难成，一寸光阴不可轻。", en: "Youth fades quickly and learning takes time; do not treat an inch of time lightly.", author: "朱熹" },
+  { zh: "The only way to do great work is to love what you do.", en: "唯一做出伟大工作的方式，是热爱你所做的事。", author: "Steve Jobs" },
+  { zh: "Success is not final, failure is not fatal: it is the courage to continue that counts.", en: "成功不是终点，失败也非末日，重要的是继续前行的勇气。", author: "Winston Churchill" },
+  { zh: "The future belongs to those who believe in the beauty of their dreams.", en: "未来属于相信梦想之美的人。", author: "Eleanor Roosevelt" },
+  { zh: "It always seems impossible until it is done.", en: "在完成之前，一切看起来都像不可能。", author: "Nelson Mandela" },
+  { zh: "Do not go where the path may lead; go instead where there is no path and leave a trail.", en: "不要走现成的路，去无路之处留下足迹。", author: "Ralph Waldo Emerson" },
+  { zh: "A journey of a thousand miles begins with a single step.", en: "千里之行，始于足下。", author: "Lao Tzu" },
+  { zh: "The best time to plant a tree was 20 years ago. The second best time is now.", en: "种树最好的时间是二十年前，其次是现在。", author: "Chinese Proverb" },
+  { zh: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", en: "我们就是反复所做之事。卓越不是一次行动，而是一种习惯。", author: "Aristotle" },
+  { zh: "The secret of getting ahead is getting started.", en: "领先的秘诀是开始。", author: "Mark Twain" },
+  { zh: "Small deeds done are better than great deeds planned.", en: "做成的小事，胜过计划中的大事。", author: "English Proverb" },
+  { zh: "Don't count the days, make the days count.", en: "别数日子，让日子有意义。", author: "Muhammad Ali" },
+  { zh: "Whether you think you can or you think you can't, you're right.", en: "你认为自己行或不行，你都是对的。", author: "Henry Ford" },
+  { zh: "The harder I work, the luckier I get.", en: "我越努力，运气越好。", author: "Gary Player" },
+  { zh: "Well begun is half done.", en: "好的开始是成功的一半。", author: "English Proverb" },
+  { zh: "Happiness is not something ready made. It comes from your own actions.", en: "幸福不是现成的东西，它来自你自己的行动。", author: "Dalai Lama" },
+  { zh: "It is during our darkest moments that we must focus to see the light.", en: "越在黑暗时刻，越要专注寻找光。", author: "Aristotle" },
+  { zh: "Stay hungry, stay foolish.", en: "求知若饥，虚心若愚。", author: "Steve Jobs" },
+  { zh: "Every day is a new beginning. Take a deep breath and start again.", en: "每一天都是新的开始，深呼吸，重新出发。", author: "Unknown" },
+  { zh: "The best way to predict the future is to create it.", en: "预测未来的最好方式，就是亲手创造它。", author: "Peter Drucker" },
+  { zh: "Nothing great was ever achieved without enthusiasm.", en: "没有热情，成就不了任何伟大的事。", author: "Ralph Waldo Emerson" }
+];
+
+function hashString(value) {
+  let hash = 0;
+  for (const char of String(value)) {
+    hash = ((hash << 5) - hash + char.codePointAt(0)) >>> 0;
+  }
+  return hash;
+}
+
+function dailyQuoteIndex(dateISO) {
+  try {
+    const raw = localStorage.getItem(DAILY_QUOTE_KEY);
+    const pick = raw ? JSON.parse(raw) : null;
+    if (pick && pick.date === dateISO && Number.isInteger(pick.index)) return pick.index;
+  } catch (err) {
+    // fall through to date-based selection
+  }
+  return hashString(dateISO || todayISO()) % DAILY_QUOTES.length;
+}
+
+function dailyQuote(dateISO = todayISO()) {
+  return DAILY_QUOTES[dailyQuoteIndex(dateISO)];
+}
+
+function shiftDailyQuote() {
+  const dateISO = todayISO();
+  const next = (dailyQuoteIndex(dateISO) + 1) % DAILY_QUOTES.length;
+  try {
+    localStorage.setItem(DAILY_QUOTE_KEY, JSON.stringify({ date: dateISO, index: next }));
+  } catch (err) {
+    // keep the date-based quote when storage is unavailable
+  }
+  render();
+  toast("已换一句");
+}
+
+function readCachedDailyNews() {
+  try {
+    const raw = localStorage.getItem(DAILY_NEWS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && parsed.date === todayISO() ? parsed : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeCachedDailyNews(data) {
+  try {
+    localStorage.setItem(DAILY_NEWS_KEY, JSON.stringify({ ...data, date: todayISO(), savedAt: Date.now() }));
+  } catch (err) {
+    // cache is best-effort
+  }
+}
+
+async function fetchDailyNews(force = false) {
+  const cached = readCachedDailyNews();
+  if (cached && !force) return cached;
+  try {
+    const res = await fetch(DAILY_NEWS_URL, { cache: "no-store" });
+    if (!res.ok) throw new Error("news-failed");
+    const payload = await res.json();
+    if (payload?.code !== 200 || !Array.isArray(payload.data?.news)) throw new Error("news-shape");
+    const data = {
+      news: payload.data.news.slice(0, 15),
+      tip: String(payload.data.tip || "").trim(),
+      link: String(payload.data.link || ""),
+      created: String(payload.data.created || ""),
+      source: "每日60秒读懂世界"
+    };
+    writeCachedDailyNews(data);
+    return data;
+  } catch (err) {
+    return cached || null;
+  }
+}
+
+function dailyNewsListHtml(data) {
+  const items = (data?.news || []).map((title, index) => `
+    <a class="news-item" href="${data.link || "#"}" target="_blank" rel="noopener">
+      <span class="news-index">${pad2(index + 1)}</span>
+      <span class="news-title">${esc(title)}</span>
+    </a>`).join("");
+  const tip = data?.tip
+    ? `<div class="news-tip">${icon("quote")}<span>${esc(data.tip)}</span></div>`
+    : "";
+  return `${items}${tip}`;
+}
+
+function renderDaily() {
+  const quote = dailyQuote();
+  const cached = readCachedDailyNews();
+  return `
+    <div class="page-head">
+      <div>
+        <h1>每日灵感</h1>
+        <p>每天一句好话，一条重点新闻，让早晨更清醒。</p>
+      </div>
+      <div class="page-actions">
+        <span class="panel-meta">${esc(formatDate(todayISO()))}</span>
+        <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
+        <button class="btn btn-compact" data-action="refresh-daily-news">${icon("refresh")}刷新新闻</button>
+      </div>
+    </div>
+
+    <section class="panel daily-quote-card">
+      <div class="quote-eyebrow">DAILY QUOTE · 每日一句</div>
+      <blockquote class="daily-quote-body">
+        <p class="quote-zh">${esc(quote.zh)}</p>
+        <p class="quote-en">${esc(quote.en)}</p>
+      </blockquote>
+      <footer class="quote-author">— ${esc(quote.author || "佚名")}</footer>
+    </section>
+
+    <section class="panel news-panel">
+      <div class="panel-head">
+        <h2>重点新闻</h2>
+        <div class="panel-head-actions">
+          <span class="panel-meta">${cached ? `${cached.news.length} 条 · ${esc(cached.created || "今日")}` : "等待加载"}</span>
+          ${cached?.link ? `<a class="btn btn-compact" href="${esc(cached.link)}" target="_blank" rel="noopener">${icon("link")}原文</a>` : ""}
+        </div>
+      </div>
+      <div id="daily-news-body" class="news-body">${cached ? dailyNewsListHtml(cached) : `<div class="empty-note">正在获取今天的重点新闻…</div>`}</div>
+    </section>
+  `;
+}
+
+function mountDailyNews() {
+  if (currentView !== "daily") return;
+  const body = $("#daily-news-body");
+  if (!body) return;
+  fetchDailyNews(false).then((data) => {
+    if (currentView !== "daily") return;
+    const target = $("#daily-news-body");
+    if (!target) return;
+    target.innerHTML = data
+      ? dailyNewsListHtml(data)
+      : `<div class="empty-note">今天暂时取不到新闻，可以稍后点“刷新新闻”，或直接打开 <a href="https://60s.viki.moe" target="_blank" rel="noopener">60秒读世界</a>。</div>`;
+  });
+}
+
 function renderToday() {
   const today = todayISO();
   const name = state.settings.name || "今天";
@@ -1938,6 +2136,7 @@ function renderToday() {
   const habits = state.habits.map((habit) => habitTile(habit, true)).join("");
   const notes = recentNotes();
   const progress = Math.round(dayProgress());
+  const quote = dailyQuote(today);
 
   return `
     <section class="hero-band">
@@ -1948,6 +2147,18 @@ function renderToday() {
       <div class="horizon-progress">
         <div class="horizon-caption"><span>一天进度</span><span>${progress}%</span></div>
         <div class="horizon-track" style="--p: ${progress}%"></div>
+      </div>
+    </section>
+
+    <section class="quote-strip">
+      <div class="quote-strip-mark">${icon("quote")}</div>
+      <blockquote>
+        <p class="quote-strip-zh">${esc(quote.zh)}</p>
+        <p class="quote-strip-en">${esc(quote.en)}</p>
+      </blockquote>
+      <div class="quote-strip-actions">
+        <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
+        <button class="btn btn-compact" data-action="goto-daily">${icon("link")}今日灵感</button>
       </div>
     </section>
 
@@ -3098,9 +3309,17 @@ function renderSettings() {
           <h2>提醒通知</h2>
           <span class="panel-meta" id="notification-status">${notificationStatusText()}</span>
           <span class="panel-meta" id="notification-detail">${esc(reminderStatusText)}</span>
+          <label class="switch-line">
+            <input type="checkbox" id="daily-push-enabled" ${state.settings.dailyPushEnabled ? "checked" : ""}>
+            每日精句推送
+          </label>
+          <label class="field-label">推送时间
+            <input type="time" id="daily-push-time" value="${esc(state.settings.dailyPushTime || "08:00")}">
+          </label>
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" data-action="enable-notifications">${icon("check")}开启通知</button>
+          <button class="btn" data-action="save-daily-push">${icon("save")}保存每日推送</button>
           <button class="btn" data-action="test-notification">${icon("clock")}测试提醒</button>
           <button class="btn" data-action="resync-notifications">${icon("refresh")}重新安排</button>
         </div>
@@ -3160,6 +3379,7 @@ function render(scrollToTop = false) {
     notes: renderNotes,
     assets: renderAssets,
     rooms: renderRooms,
+    daily: renderDaily,
     review: renderReview,
     settings: renderSettings
   };
@@ -3183,6 +3403,7 @@ function render(scrollToTop = false) {
   refreshReminderStatus();
   refreshUpdateStatus();
   if (currentView === "settings" && authSession) refreshProjectList();
+  mountDailyNews();
   scheduleRemindersSoon();
 }
 
@@ -4045,6 +4266,15 @@ function saveSettings() {
   toast("设置已保存");
 }
 
+function saveDailyPush() {
+  state.settings.dailyPushEnabled = Boolean($("#daily-push-enabled")?.checked);
+  state.settings.dailyPushTime = $("#daily-push-time")?.value || "08:00";
+  scheduleSave();
+  scheduleRemindersSoon();
+  render();
+  toast(state.settings.dailyPushEnabled ? "每日精句推送已开启" : "每日精句推送已关闭");
+}
+
 function saveAIConfig() {
   aiConfig = {
     baseUrl: $("#ai-base-url").value.trim().replace(/\/+$/, "") || "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -4426,7 +4656,7 @@ async function logoutAccount() {
 
 function emptyState() {
   return {
-    settings: { name: "", title: "我的工作台", hideMobileNav: true },
+    settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00" },
     focus: {},
     tasks: [],
     habits: [],
@@ -4784,7 +5014,7 @@ async function loadDemo() {
 
 async function clearData() {
   if (!confirm("确定清空全部数据吗？此操作会重置任务、习惯、课表、记录和复盘。")) return;
-  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true };
+  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00" };
   state.focus = {};
   state.tasks = [];
   state.habits = [];
@@ -4830,6 +5060,28 @@ function handleClick(event) {
   if (action === "goto-view") {
     currentView = el.dataset.view;
     render(true);
+    return;
+  }
+  if (action === "goto-daily") {
+    currentView = "daily";
+    render(true);
+    return;
+  }
+  if (action === "shift-quote") return shiftDailyQuote();
+  if (action === "refresh-daily-news") {
+    const body = $("#daily-news-body");
+    if (body) body.innerHTML = `<div class="empty-note">正在刷新新闻…</div>`;
+    fetchDailyNews(true).then((data) => {
+      const target = $("#daily-news-body");
+      if (!target) return;
+      if (data) {
+        target.innerHTML = dailyNewsListHtml(data);
+        toast("新闻已更新");
+      } else {
+        target.innerHTML = `<div class="empty-note">刷新失败，请稍后再试。</div>`;
+        toast("刷新失败，请稍后再试");
+      }
+    });
     return;
   }
   if (action === "filter-task") {
@@ -4944,6 +5196,7 @@ function handleClick(event) {
   if (action === "clear-cloud") return clearCloud();
   if (action === "enable-notifications") return enableNotifications();
   if (action === "test-notification") return testNotification();
+  if (action === "save-daily-push") return saveDailyPush();
   if (action === "check-update") return checkForUpdate();
   if (action === "resync-notifications") {
     scheduleReminders().then(() => {
