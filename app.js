@@ -1,5 +1,5 @@
 const state = {
-  settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00" },
+  settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "" },
   focus: {},
   tasks: [],
   habits: [],
@@ -41,6 +41,7 @@ let importTab = "html";
 let importDraft = "";
 let importFileText = "";
 let importFileName = "";
+let importSetName = "";
 let openRoomPeriods = new Set();
 let roomAutoDone = false;
 let roomFilterStart = 1;
@@ -60,7 +61,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -720,15 +721,24 @@ function scheduleSemesterList() {
   return Array.from(semesters).sort((a, b) => String(b).localeCompare(String(a), "zh-CN"));
 }
 
+function setScheduleSet(name) {
+  scheduleSemester = name || "";
+  state.settings.currentScheduleSet = scheduleSemester;
+}
+
 function semesterOptions() {
   const options = scheduleSemesterList()
     .map((semester) => `<option value="${esc(semester)}" ${scheduleSemester === semester ? "selected" : ""}>${esc(semester)}</option>`)
     .join("");
-  return `<option value="">全部学期</option>${options}`;
+  return `<option value="">全部课表</option>${options}`;
 }
 
 function scheduleInSemester(item) {
   return !scheduleSemester || item.semester === scheduleSemester;
+}
+
+function scheduleSetCourses() {
+  return state.schedule.filter((item) => scheduleInSemester(item));
 }
 
 function recentNotes(limit = 6) {
@@ -1706,7 +1716,7 @@ function renderImportModal() {
   const preview = pendingImport.length
     ? `<div class="import-summary">
         <strong>解析到 ${pendingImport.length} 条课程${pendingImport[0]?.semester ? `（${esc(pendingImport[0].semester)}）` : ""}</strong>
-        <span>确认后会合并到现有课表，重复条目自动跳过</span>
+        <span>会保存为独立一套课表，不覆盖现有课表</span>
       </div>
       <ul class="import-list">
         ${pendingImport
@@ -1767,6 +1777,13 @@ function renderImportModal() {
     </div>
     ${school === "neuq" ? `<p class="import-hint">先登录一网通办，进入“教务管理系统/教学服务”里的课表页，用浏览器“另存为 HTML”保存，再上传这个文件；也可以直接上传学校导出的 xls 课表。</p>` : ""}
 
+    <div class="import-set-row">
+      <label class="field-label">保存为课表
+        <input id="import-set-name" value="${esc(importSetName)}" placeholder="例如：2026春季学期" autocomplete="off">
+      </label>
+      <span class="panel-meta">没识别出年份学期就自己命名，新课表会是空白的一套</span>
+    </div>
+
     <div class="import-tabs" role="tablist" aria-label="导入方式">
       <button class="import-tab ${importTab === "html" ? "is-active" : ""}" data-action="import-tab" data-tab="html">粘贴网页表格</button>
       <button class="import-tab ${importTab === "csv" ? "is-active" : ""}" data-action="import-tab" data-tab="csv">WakeUp CSV</button>
@@ -1790,6 +1807,7 @@ function openImport() {
   importDraft = "";
   importFileText = "";
   importFileName = "";
+  importSetName = "";
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
   overlay.id = "import-modal";
@@ -1803,6 +1821,8 @@ function rerenderImport() {
   if (!overlay) return;
   const textarea = $("#import-text");
   if (textarea) importDraft = textarea.value;
+  const setNameInput = $("#import-set-name");
+  if (setNameInput) importSetName = setNameInput.value.trim();
   overlay.innerHTML = renderImportModal();
 }
 
@@ -1885,9 +1905,9 @@ function confirmImport() {
     toast("请至少选择一门课程");
     return;
   }
+  const setName = $("#import-set-name")?.value.trim() || pendingImport[0]?.semester || "未命名课表";
   let added = 0;
   let skipped = 0;
-  let importedSemester = "";
   for (const box of checked) {
     const course = pendingImport[Number(box.dataset.index)];
     if (!course) continue;
@@ -1903,16 +1923,15 @@ function confirmImport() {
       startPeriod: Number(course.startPeriod) || periodNumberForTime(course.start, "start"),
       endPeriod: Number(course.endPeriod) || periodNumberForTime(course.end, "end"),
       weekday: Number(course.weekday),
-      semester: course.semester || "",
+      semester: setName,
       location: course.location || "",
       teacher: course.teacher || "",
       weeks: course.weeks || "",
       color: course.color || "cobalt"
     });
-    if (!importedSemester && course.semester) importedSemester = course.semester;
     added += 1;
   }
-  if (importedSemester) scheduleSemester = importedSemester;
+  setScheduleSet(setName);
   scheduleSave();
   closeImport();
   render();
@@ -1937,42 +1956,42 @@ const DAILY_QUOTE_KEY = "workbench-daily-quote-v1";
 const DAILY_NEWS_KEY = "workbench-daily-news-v1";
 const DAILY_NEWS_URL = "https://60s.viki.moe/v2/60s";
 const DAILY_QUOTES = [
-  { zh: "博观而约取，厚积而薄发。", en: "Learn widely, choose what matters, and let deep accumulation find its moment.", author: "苏轼" },
-  { zh: "知者不惑，仁者不忧，勇者不惧。", en: "The wise are free from doubt, the humane from anxiety, the brave from fear.", author: "《论语》" },
-  { zh: "路漫漫其修远兮，吾将上下而求索。", en: "The road ahead is long and far; I will search high and low.", author: "屈原" },
-  { zh: "纸上得来终觉浅，绝知此事要躬行。", en: "What you get from books is shallow; real understanding demands practice.", author: "陆游" },
-  { zh: "海内存知己，天涯若比邻。", en: "A true friend stays close even when the world separates you.", author: "王勃" },
-  { zh: "千淘万漉虽辛苦，吹尽狂沙始到金。", en: "After endless washing, only gold remains among the sand.", author: "刘禹锡" },
-  { zh: "读书破万卷，下笔如有神。", en: "Read ten thousand volumes, and your writing will flow as if inspired.", author: "杜甫" },
-  { zh: "勿以恶小而为之，勿以善小而不为。", en: "Do not do evil because it is small; do not leave good undone because it is small.", author: "刘备" },
-  { zh: "锲而不舍，金石可镂。", en: "With relentless effort, even metal and stone can be carved.", author: "《荀子》" },
-  { zh: "会当凌绝顶，一览众山小。", en: "Climb to the summit, and all other mountains grow small.", author: "杜甫" },
-  { zh: "非淡泊无以明志，非宁静无以致远。", en: "Without calm detachment, ambition blurs; without quiet, vision cannot reach far.", author: "诸葛亮" },
-  { zh: "宝剑锋从磨砺出，梅花香自苦寒来。", en: "A sharp blade comes from grinding; plum blossom fragrance comes from bitter cold.", author: "古语" },
-  { zh: "天生我材必有用。", en: "Heaven gave me talents; they will find their use.", author: "李白" },
-  { zh: "苟日新，日日新，又日新。", en: "If you can renew yourself one day, renew yourself anew each day.", author: "《礼记》" },
-  { zh: "山重水复疑无路，柳暗花明又一村。", en: "Hills and rivers may seem to block the way, yet a bright village lies beyond the willows.", author: "陆游" },
-  { zh: "少年易老学难成，一寸光阴不可轻。", en: "Youth fades quickly and learning takes time; do not treat an inch of time lightly.", author: "朱熹" },
-  { zh: "The only way to do great work is to love what you do.", en: "唯一做出伟大工作的方式，是热爱你所做的事。", author: "Steve Jobs" },
-  { zh: "Success is not final, failure is not fatal: it is the courage to continue that counts.", en: "成功不是终点，失败也非末日，重要的是继续前行的勇气。", author: "Winston Churchill" },
-  { zh: "The future belongs to those who believe in the beauty of their dreams.", en: "未来属于相信梦想之美的人。", author: "Eleanor Roosevelt" },
-  { zh: "It always seems impossible until it is done.", en: "在完成之前，一切看起来都像不可能。", author: "Nelson Mandela" },
-  { zh: "Do not go where the path may lead; go instead where there is no path and leave a trail.", en: "不要走现成的路，去无路之处留下足迹。", author: "Ralph Waldo Emerson" },
-  { zh: "A journey of a thousand miles begins with a single step.", en: "千里之行，始于足下。", author: "Lao Tzu" },
-  { zh: "The best time to plant a tree was 20 years ago. The second best time is now.", en: "种树最好的时间是二十年前，其次是现在。", author: "Chinese Proverb" },
-  { zh: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", en: "我们就是反复所做之事。卓越不是一次行动，而是一种习惯。", author: "Aristotle" },
-  { zh: "The secret of getting ahead is getting started.", en: "领先的秘诀是开始。", author: "Mark Twain" },
-  { zh: "Small deeds done are better than great deeds planned.", en: "做成的小事，胜过计划中的大事。", author: "English Proverb" },
-  { zh: "Don't count the days, make the days count.", en: "别数日子，让日子有意义。", author: "Muhammad Ali" },
-  { zh: "Whether you think you can or you think you can't, you're right.", en: "你认为自己行或不行，你都是对的。", author: "Henry Ford" },
-  { zh: "The harder I work, the luckier I get.", en: "我越努力，运气越好。", author: "Gary Player" },
-  { zh: "Well begun is half done.", en: "好的开始是成功的一半。", author: "English Proverb" },
-  { zh: "Happiness is not something ready made. It comes from your own actions.", en: "幸福不是现成的东西，它来自你自己的行动。", author: "Dalai Lama" },
-  { zh: "It is during our darkest moments that we must focus to see the light.", en: "越在黑暗时刻，越要专注寻找光。", author: "Aristotle" },
-  { zh: "Stay hungry, stay foolish.", en: "求知若饥，虚心若愚。", author: "Steve Jobs" },
-  { zh: "Every day is a new beginning. Take a deep breath and start again.", en: "每一天都是新的开始，深呼吸，重新出发。", author: "Unknown" },
-  { zh: "The best way to predict the future is to create it.", en: "预测未来的最好方式，就是亲手创造它。", author: "Peter Drucker" },
-  { zh: "Nothing great was ever achieved without enthusiasm.", en: "没有热情，成就不了任何伟大的事。", author: "Ralph Waldo Emerson" }
+  { zh: "博观而约取，厚积而薄发。", en: "Learn widely, choose what matters, and let deep accumulation find its moment.", author: "苏轼", source: "苏轼《稼说送张琥》" },
+  { zh: "知者不惑，仁者不忧，勇者不惧。", en: "The wise are free from doubt, the humane from anxiety, the brave from fear.", author: "孔子", source: "《论语·子罕》" },
+  { zh: "路漫漫其修远兮，吾将上下而求索。", en: "The road ahead is long and far; I will search high and low.", author: "屈原", source: "屈原《离骚》" },
+  { zh: "纸上得来终觉浅，绝知此事要躬行。", en: "What you get from books is shallow; real understanding demands practice.", author: "陆游", source: "陆游《冬夜读书示子聿》" },
+  { zh: "海内存知己，天涯若比邻。", en: "A true friend stays close even when the world separates you.", author: "王勃", source: "王勃《送杜少府之任蜀州》" },
+  { zh: "千淘万漉虽辛苦，吹尽狂沙始到金。", en: "After endless washing, only gold remains among the sand.", author: "刘禹锡", source: "刘禹锡《浪淘沙》" },
+  { zh: "读书破万卷，下笔如有神。", en: "Read ten thousand volumes, and your writing will flow as if inspired.", author: "杜甫", source: "杜甫《奉赠韦左丞丈二十二韵》" },
+  { zh: "勿以恶小而为之，勿以善小而不为。", en: "Do not do evil because it is small; do not leave good undone because it is small.", author: "刘备", source: "《三国志·蜀书·先主传》" },
+  { zh: "锲而不舍，金石可镂。", en: "With relentless effort, even metal and stone can be carved.", author: "荀子", source: "《荀子·劝学》" },
+  { zh: "会当凌绝顶，一览众山小。", en: "Climb to the summit, and all other mountains grow small.", author: "杜甫", source: "杜甫《望岳》" },
+  { zh: "非淡泊无以明志，非宁静无以致远。", en: "Without calm detachment, ambition blurs; without quiet, vision cannot reach far.", author: "诸葛亮", source: "诸葛亮《诫子书》" },
+  { zh: "宝剑锋从磨砺出，梅花香自苦寒来。", en: "A sharp blade comes from grinding; plum blossom fragrance comes from bitter cold.", author: "古语", source: "《警世贤文》" },
+  { zh: "天生我材必有用。", en: "Heaven gave me talents; they will find their use.", author: "李白", source: "李白《将进酒》" },
+  { zh: "苟日新，日日新，又日新。", en: "If you can renew yourself one day, renew yourself anew each day.", author: "曾子", source: "《礼记·大学》" },
+  { zh: "山重水复疑无路，柳暗花明又一村。", en: "Hills and rivers may seem to block the way, yet a bright village lies beyond the willows.", author: "陆游", source: "陆游《游山西村》" },
+  { zh: "少年易老学难成，一寸光阴不可轻。", en: "Youth fades quickly and learning takes time; do not treat an inch of time lightly.", author: "朱熹", source: "朱熹《偶成》" },
+  { zh: "The only way to do great work is to love what you do.", en: "唯一做出伟大工作的方式，是热爱你所做的事。", author: "Steve Jobs", source: "Steve Jobs 2005 年斯坦福毕业演讲" },
+  { zh: "Success is not final, failure is not fatal: it is the courage to continue that counts.", en: "成功不是终点，失败也非末日，重要的是继续前行的勇气。", author: "Winston Churchill", source: "温斯顿·丘吉尔 1941 年演讲" },
+  { zh: "The future belongs to those who believe in the beauty of their dreams.", en: "未来属于相信梦想之美的人。", author: "Eleanor Roosevelt", source: "埃莉诺·罗斯福" },
+  { zh: "It always seems impossible until it is done.", en: "在完成之前，一切看起来都像不可能。", author: "Nelson Mandela", source: "纳尔逊·曼德拉" },
+  { zh: "Do not go where the path may lead; go instead where there is no path and leave a trail.", en: "不要走现成的路，去无路之处留下足迹。", author: "Ralph Waldo Emerson", source: "拉尔夫·爱默生" },
+  { zh: "A journey of a thousand miles begins with a single step.", en: "千里之行，始于足下。", author: "老子", source: "《道德经·第六十四章》" },
+  { zh: "The best time to plant a tree was 20 years ago. The second best time is now.", en: "种树最好的时间是二十年前，其次是现在。", author: "谚语", source: "英文谚语" },
+  { zh: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", en: "我们就是反复所做之事。卓越不是一次行动，而是一种习惯。", author: "Aristotle", source: "亚里士多德" },
+  { zh: "The secret of getting ahead is getting started.", en: "领先的秘诀是开始。", author: "Mark Twain", source: "马克·吐温" },
+  { zh: "Small deeds done are better than great deeds planned.", en: "做成的小事，胜过计划中的大事。", author: "谚语", source: "英文谚语" },
+  { zh: "Don't count the days, make the days count.", en: "别数日子，让日子有意义。", author: "Muhammad Ali", source: "穆罕默德·阿里" },
+  { zh: "Whether you think you can or you think you can't, you're right.", en: "你认为自己行或不行，你都是对的。", author: "Henry Ford", source: "亨利·福特" },
+  { zh: "The harder I work, the luckier I get.", en: "我越努力，运气越好。", author: "Gary Player", source: "加里·普莱尔" },
+  { zh: "Well begun is half done.", en: "好的开始是成功的一半。", author: "谚语", source: "英文谚语" },
+  { zh: "The only limit to our realization of tomorrow will be our doubts of today.", en: "实现明日目标的唯一限制，是我们今日的怀疑。", author: "Franklin D. Roosevelt", source: "富兰克林·罗斯福" },
+  { zh: "It is during our darkest moments that we must focus to see the light.", en: "越在黑暗时刻，越要专注寻找光。", author: "Aristotle", source: "亚里士多德" },
+  { zh: "Stay hungry, stay foolish.", en: "求知若饥，虚心若愚。", author: "Steve Jobs", source: "Steve Jobs 2005 年斯坦福毕业演讲" },
+  { zh: "Every day is a new beginning. Take a deep breath and start again.", en: "每一天都是新的开始，深呼吸，重新出发。", author: "佚名", source: "佚名" },
+  { zh: "The best way to predict the future is to create it.", en: "预测未来的最好方式，就是亲手创造它。", author: "Peter Drucker", source: "彼得·德鲁克" },
+  { zh: "Nothing great was ever achieved without enthusiasm.", en: "没有热情，成就不了任何伟大的事。", author: "Ralph Waldo Emerson", source: "拉尔夫·爱默生" }
 ];
 
 function hashString(value) {
@@ -2084,7 +2103,7 @@ function renderDaily() {
         <p class="quote-zh">${esc(quote.zh)}</p>
         <p class="quote-en">${esc(quote.en)}</p>
       </blockquote>
-      <footer class="quote-author">— ${esc(quote.author || "佚名")}</footer>
+      <footer class="quote-author">出处：${esc(quote.source || quote.author || "佚名")}</footer>
     </section>
 
     <section class="panel news-panel">
@@ -2155,6 +2174,7 @@ function renderToday() {
       <blockquote>
         <p class="quote-strip-zh">${esc(quote.zh)}</p>
         <p class="quote-strip-en">${esc(quote.en)}</p>
+        <span class="quote-strip-source">出处：${esc(quote.source || quote.author || "佚名")}</span>
       </blockquote>
       <div class="quote-strip-actions">
         <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
@@ -2395,11 +2415,12 @@ function renderSchedule() {
         <p>课程、运动和固定安排，按周查看。</p>
       </div>
       <div class="page-actions">
-        <span class="panel-meta">${state.schedule.length} 个固定安排</span>
+        <span class="panel-meta">${scheduleSetCourses().length} 个固定安排${scheduleSemester ? ` · ${esc(scheduleSemester)}` : ""}</span>
         <label class="week-picker">
-          <span>学期</span>
+          <span>课表</span>
           <select id="semester-filter">${semesterOptions()}</select>
         </label>
+        <button class="btn btn-compact" data-action="new-schedule-set">${icon("plus")}新建课表</button>
         <label class="week-picker">
           <span>当前周</span>
           <select id="current-week" aria-label="当前教学周">
@@ -2440,7 +2461,7 @@ function renderSchedule() {
         </label>
       </div>
       <div class="form-row wide">
-        <label class="field-label">学期
+        <label class="field-label">课表名称
           <input id="course-semester" list="course-semester-list" value="${esc(scheduleSemester || "")}" placeholder="例如：2026春季学期" autocomplete="off">
           <datalist id="course-semester-list">${scheduleSemesterList().map((semester) => `<option value="${esc(semester)}"></option>`).join("")}</datalist>
         </label>
@@ -3371,6 +3392,9 @@ function renderSettings() {
 function render(scrollToTop = false) {
   const view = $("#view");
   const previousScrollY = window.scrollY;
+  if (state.settings && typeof state.settings.currentScheduleSet === "string") {
+    scheduleSemester = state.settings.currentScheduleSet;
+  }
   const htmlByView = {
     today: renderToday,
     tasks: renderTasks,
@@ -4656,7 +4680,7 @@ async function logoutAccount() {
 
 function emptyState() {
   return {
-    settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00" },
+    settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "" },
     focus: {},
     tasks: [],
     habits: [],
@@ -5014,7 +5038,7 @@ async function loadDemo() {
 
 async function clearData() {
   if (!confirm("确定清空全部数据吗？此操作会重置任务、习惯、课表、记录和复盘。")) return;
-  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00" };
+  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "" };
   state.focus = {};
   state.tasks = [];
   state.habits = [];
@@ -5037,7 +5061,7 @@ function clearPageData(page) {
   const map = {
     tasks: { key: "tasks", label: "全部待办" },
     habits: { key: "habits", label: "全部习惯" },
-    schedule: { key: "schedule", label: "全部课表" },
+    schedule: { key: "schedule", label: "当前课表" },
     notes: { key: "notes", label: "全部记录" },
     assets: { key: "assets", label: "全部资料图片" },
     rooms: { key: "rooms", label: "全部空教室记录" },
@@ -5045,6 +5069,14 @@ function clearPageData(page) {
   };
   const target = map[page];
   if (!target) return;
+  if (page === "schedule" && scheduleSemester) {
+    if (!confirm(`确定清空课表“${scheduleSemester}”吗？其他课表不受影响。`)) return;
+    state.schedule = state.schedule.filter((item) => item.semester !== scheduleSemester);
+    scheduleSave();
+    render();
+    toast(`课表“${scheduleSemester}”已清空`);
+    return;
+  }
   if (!confirm(`确定清空${target.label}吗？此操作不可撤销。`)) return;
   state[target.key] = [];
   scheduleSave();
@@ -5096,6 +5128,15 @@ function handleClick(event) {
   }
   if (action === "open-import") return openImport();
   if (action === "close-import") return closeImport();
+  if (action === "new-schedule-set") {
+    const name = prompt("给新课表起个名字", "");
+    if (!name || !name.trim()) return;
+    setScheduleSet(name.trim());
+    scheduleSave();
+    render();
+    toast(`已新建空白课表：${name.trim()}`);
+    return;
+  }
   if (action === "open-room-screenshot") {
     $("#room-screenshot").click();
     return;
@@ -5122,6 +5163,7 @@ function handleClick(event) {
       const raw = importTab === "file" ? importFileText : textarea ? textarea.value : importDraft;
       pendingImport = parseImportText(raw, importTab === "csv" ? "csv" : "html");
       if (!pendingImport.length) toast("没有识别到课程，请确认复制的是课表表格或 CSV 格式");
+      if (pendingImport[0]?.semester) importSetName = pendingImport[0].semester;
     }
     rerenderImport();
     return;
@@ -5252,7 +5294,7 @@ document.addEventListener("change", async (event) => {
       importFileText = "";
       importFileName = file.name;
       pendingImport = parsed.courses || [];
-      if (parsed.semester) scheduleSemester = parsed.semester;
+      if (parsed.semester) importSetName = parsed.semester;
       rerenderImport();
       if (parsed.error) toast(parsed.error);
       else if (!pendingImport.length) toast("没有识别到课程，请确认是学生课表文件");
@@ -5266,6 +5308,7 @@ document.addEventListener("change", async (event) => {
         importFileText,
         file.name.toLowerCase().endsWith(".csv") ? "csv" : "html"
       );
+      if (pendingImport[0]?.semester) importSetName = pendingImport[0].semester;
       rerenderImport();
       if (!pendingImport.length) toast("没有识别到课程，请换一个文件");
     };
@@ -5285,7 +5328,8 @@ document.addEventListener("change", async (event) => {
     return;
   }
   if (event.target.id === "semester-filter") {
-    scheduleSemester = event.target.value;
+    setScheduleSet(event.target.value);
+    scheduleSave();
     render();
     return;
   }

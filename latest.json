@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.3.0.apk",
-  "announcement": "新增“每日灵感”：每天一句中英金句，可手动换一句；重点新闻每天 15 条自动更新，支持离线缓存。设置里还能开启每日精句推送。"
+  "version": "1.4.0",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.4.0.apk",
+  "announcement": "每日精句现在标注完整出处；课表升级为多套备份，导入保存为独立课表，可自定义命名，也能新建空白课表继续添加。"
 }

@@ -1164,6 +1164,13 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.quote-strip-source {
+  display: block;
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
 .quote-strip-actions {
   display: flex;
   gap: 8px;
@@ -1943,6 +1950,31 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.import-set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin: 0 2px 14px;
+}
+
+.import-set-row input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  color: var(--day);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+  font-size: 0.92rem;
+}
+
+.import-set-row input:focus {
+  border-color: var(--rose);
+  box-shadow: 0 0 0 3px var(--rose-soft);
+}
+
 .import-tabs {
   display: inline-grid;
   grid-template-columns: repeat(3, auto);
@@ -2283,6 +2315,11 @@ textarea:focus {
   .import-school .school-actions,
   .import-school .btn {
     grid-column: 1 / -1;
+  }
+
+  .import-set-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .import-tabs {
