@@ -1,4 +1,4 @@
-const CACHE_NAME = "workbench-pwa-v20";
+const CACHE_NAME = "workbench-pwa-v22";
 const SHELL = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const SHELL = [
   "./manifest.webmanifest",
   "./assets/bg-light.svg",
   "./assets/xlsx.full.min.js",
+  "./assets/lunar.js",
   "./favicon.svg",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",

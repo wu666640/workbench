@@ -1,5 +1,5 @@
 const state = {
-  settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "" },
+  settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "", semesterStart: "", currentWeekAuto: true },
   focus: {},
   tasks: [],
   habits: [],
@@ -8,7 +8,8 @@ const state = {
   notes: [],
   assets: [],
   rooms: [],
-  reviews: []
+  reviews: [],
+  anniversaries: []
 };
 
 const LOCAL_STATE_KEY = "personal-workbench-local-v1";
@@ -34,6 +35,7 @@ let editingTaskId = null;
 let editingHabitId = null;
 let editingCourseId = null;
 let editingReviewId = null;
+let editingAnniversaryId = null;
 let selectedHabitIcon = "water";
 let noteImageUrl = "";
 let pendingImport = [];
@@ -61,7 +63,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.4.2";
+const APP_VERSION = "1.6.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -295,6 +297,25 @@ function collectReminders() {
           id: `daily-${dateISO}`,
           title: "每日一句",
           body: `${quote.zh} ${quote.en}`,
+          at
+        });
+      }
+    }
+  }
+  for (const anniversary of state.anniversaries) {
+    if (anniversary.remindEnabled === false || !anniversary.date) continue;
+    for (let day = 0; day < 7; day += 1) {
+      const cursor = new Date();
+      cursor.setDate(cursor.getDate() + day);
+      const dateISO = isoFor(cursor);
+      const label = anniversaryLabelOn(anniversary, cursor);
+      if (!label) continue;
+      const at = localDateMs(dateISO, anniversary.remindTime || "08:00");
+      if (at > now) {
+        items.push({
+          id: `anniv-${anniversary.id}-${dateISO}`,
+          title: `纪念日 · ${anniversary.name}`,
+          body: label,
           at
         });
       }
@@ -839,9 +860,30 @@ function scheduleMeta(item) {
     .join(" · ");
 }
 
+function autoCurrentWeek() {
+  const start = String(state.settings.semesterStart || "").trim();
+  if (!start) return 0;
+  const startDate = new Date(`${start}T00:00:00`);
+  if (Number.isNaN(startDate.getTime())) return 0;
+  const today = new Date(`${todayISO()}T00:00:00`);
+  const diffDays = Math.round((today.getTime() - startDate.getTime()) / 86400000);
+  if (diffDays < 0) return 1;
+  return Math.floor(diffDays / 7) + 1;
+}
+
 function currentWeekNumber() {
+  if (state.settings.currentWeekAuto !== false && state.settings.semesterStart) {
+    const auto = autoCurrentWeek();
+    if (auto) return auto;
+  }
   const week = Number(state.settings.currentWeek);
   return Number.isInteger(week) && week >= 1 ? week : 0;
+}
+
+function autoWeekLabel() {
+  if (!state.settings.semesterStart) return "自动（未设置开学日期）";
+  const auto = autoCurrentWeek();
+  return auto ? `自动（第 ${auto} 周）` : "自动";
 }
 
 function courseInWeek(item, week) {
@@ -2009,6 +2051,51 @@ const DAILY_QUOTES = [
   { zh: "Nothing great was ever achieved without enthusiasm.", en: "没有热情，成就不了任何伟大的事。", author: "Ralph Waldo Emerson", source: "拉尔夫·爱默生" }
 ];
 
+const FESTIVAL_QUOTES = {
+  "元旦节": { zh: "新的一年，愿你步履不停，也常有欢喜。", en: "A new year, steady steps and everyday joy.", source: "元旦祝福" },
+  "春节": { zh: "岁岁常欢愉，年年皆胜意。", en: "May every year bring joy and everything go your way.", source: "春节祝福" },
+  "元宵节": { zh: "灯火可亲，团团圆圆。", en: "Warm lights and a round reunion.", source: "元宵节祝福" },
+  "清明节": { zh: "慎终追远，也珍惜眼前春光。", en: "Honor the past, and treasure the spring before you.", source: "清明节寄语" },
+  "劳动节": { zh: "每一份认真都值得被看见。", en: "Every sincere effort deserves to be seen.", source: "劳动节祝福" },
+  "端午节": { zh: "愿你乘风破浪，也安康顺遂。", en: "May you ride the waves and stay safe and well.", source: "端午节祝福" },
+  "七夕节": { zh: "所爱隔山海，山海皆可平。", en: "Love crosses mountains and seas.", source: "七夕祝福" },
+  "中秋节": { zh: "但愿人长久，千里共婵娟。", en: "May we live long and share the moon across a thousand miles.", source: "苏轼《水调歌头》" },
+  "重阳节": { zh: "登高望远，岁岁安康。", en: "Climb high, see far, and stay well every year.", source: "重阳节祝福" },
+  "国庆节": { zh: "山河锦绣，国泰民安。", en: "May the land be beautiful and the people live in peace.", source: "国庆节祝福" },
+  "除夕": { zh: "旧岁已展千重锦，新年再进百尺竿。", en: "The old year closes in splendor; the new year climbs higher.", source: "除夕祝福" },
+  "情人节": { zh: "爱是平常日子里的一束光。", en: "Love is a beam of light in ordinary days.", source: "情人节寄语" },
+  "妇女节": { zh: "愿你独立且自由，温柔而坚定。", en: "Be independent and free, gentle and steady.", source: "妇女节祝福" },
+  "母亲节": { zh: "谢谢您把最好的时光给了我。", en: "Thank you for giving me your best days.", source: "母亲节祝福" },
+  "父亲节": { zh: "谢谢您一直站在我身后。", en: "Thank you for always standing behind me.", source: "父亲节祝福" },
+  "教师节": { zh: "一朝沐杏雨，一生念师恩。", en: "A day in your rain of wisdom, a lifetime of gratitude.", source: "教师节祝福" },
+  "圣诞节": { zh: "愿平安喜乐，常伴左右。", en: "May peace and joy stay with you.", source: "圣诞祝福" },
+  "光棍节": { zh: "一个人也要把日子过得热气腾腾。", en: "Live one day warmly, even on your own.", source: "节日祝福" }
+};
+
+function todayFestivalName(date = new Date()) {
+  try {
+    if (window.Lunar && window.Solar) {
+      const solar = Solar.fromDate(date);
+      const lunar = solar.getLunar();
+      const names = [
+        ...(solar.getFestivals() || []),
+        ...(lunar.getFestivals() || []),
+        ...(lunar.getOtherFestivals() || [])
+      ];
+      return names.find((name) => FESTIVAL_QUOTES[name]) || "";
+    }
+  } catch (err) {
+    // fall through when the lunar library is unavailable
+  }
+  return "";
+}
+
+function festivalQuote(date = new Date()) {
+  const name = todayFestivalName(date);
+  if (!name) return null;
+  return { ...FESTIVAL_QUOTES[name], festival: name };
+}
+
 function hashString(value) {
   let hash = 0;
   for (const char of String(value)) {
@@ -2017,18 +2104,28 @@ function hashString(value) {
   return hash;
 }
 
-function dailyQuoteIndex(dateISO) {
+function readDailyQuotePick(dateISO) {
   try {
     const raw = localStorage.getItem(DAILY_QUOTE_KEY);
     const pick = raw ? JSON.parse(raw) : null;
-    if (pick && pick.date === dateISO && Number.isInteger(pick.index)) return pick.index;
+    if (pick && pick.date === dateISO && Number.isInteger(pick.index)) return pick;
   } catch (err) {
-    // fall through to date-based selection
+    return null;
   }
+  return null;
+}
+
+function dailyQuoteIndex(dateISO) {
+  const pick = readDailyQuotePick(dateISO);
+  if (pick) return pick.index;
   return hashString(dateISO || todayISO()) % DAILY_QUOTES.length;
 }
 
 function dailyQuote(dateISO = todayISO()) {
+  const pick = readDailyQuotePick(dateISO);
+  if (pick) return DAILY_QUOTES[pick.index] || DAILY_QUOTES[0];
+  const festival = festivalQuote(new Date(`${dateISO}T12:00:00`));
+  if (festival) return festival;
   return DAILY_QUOTES[dailyQuoteIndex(dateISO)];
 }
 
@@ -2113,7 +2210,7 @@ function renderDaily() {
     </div>
 
     <section class="panel daily-quote-card">
-      <div class="quote-eyebrow">DAILY QUOTE · 每日一句</div>
+      <div class="quote-eyebrow">${quote.festival ? `${esc(quote.festival)} · 节日祝福` : "DAILY QUOTE · 每日一句"}</div>
       <blockquote class="daily-quote-body">
         <p class="quote-zh">${esc(quote.zh)}</p>
         <p class="quote-en">${esc(quote.en)}</p>
@@ -2187,6 +2284,7 @@ function renderToday() {
     <section class="quote-strip">
       <div class="quote-strip-mark">${icon("quote")}</div>
       <blockquote>
+        ${quote.festival ? `<span class="quote-festival">${esc(quote.festival)} · 节日祝福</span>` : ""}
         <p class="quote-strip-zh">${esc(quote.zh)}</p>
         <p class="quote-strip-en">${esc(quote.en)}</p>
         <span class="quote-strip-source">出处：${esc(quote.source || quote.author || "佚名")}</span>
@@ -2439,8 +2537,8 @@ function renderSchedule() {
         <label class="week-picker">
           <span>当前周</span>
           <select id="current-week" aria-label="当前教学周">
-            <option value="">未设置</option>
-            ${Array.from({ length: 20 }, (_, index) => `<option value="${index + 1}" ${currentWeekNumber() === index + 1 ? "selected" : ""}>第 ${index + 1} 周</option>`).join("")}
+            <option value="" ${state.settings.currentWeekAuto !== false ? "selected" : ""}>${autoWeekLabel()}</option>
+            ${Array.from({ length: 20 }, (_, index) => `<option value="${index + 1}" ${state.settings.currentWeekAuto === false && currentWeekNumber() === index + 1 ? "selected" : ""}>第 ${index + 1} 周</option>`).join("")}
           </select>
         </label>
         <button class="btn" data-action="open-import">${icon("upload")}从官网导入</button>
@@ -2548,6 +2646,189 @@ function renderNotes() {
 
     ${sorted.length ? `<div class="big-grid">${sorted.map(noteCard).join("")}</div>` : `<div class="panel"><div class="empty-note">还没有记录。今天的第一条灵感，可以从这里开始。</div></div>`}
   `;
+}
+
+function parseAnniversaryIntervals(value) {
+  return String(value || "")
+    .split(/[，,、\s]+/)
+    .map((part) => Number(part))
+    .filter((number) => Number.isInteger(number) && number > 0)
+    .sort((a, b) => a - b);
+}
+
+function anniversaryStart(item) {
+  const date = new Date(`${String(item.date || "")}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function anniversaryDaysSince(item) {
+  const start = anniversaryStart(item);
+  if (!start) return null;
+  const todayStart = new Date(`${todayISO()}T00:00:00`);
+  return Math.round((todayStart - start) / 86400000);
+}
+
+function anniversaryNext(item) {
+  const start = anniversaryStart(item);
+  if (!start) return null;
+  const todayStart = new Date(`${todayISO()}T00:00:00`);
+  const candidates = [];
+  if (item.yearly) {
+    const yearly = new Date(todayStart.getFullYear(), start.getMonth(), start.getDate());
+    if (yearly < todayStart) yearly.setFullYear(yearly.getFullYear() + 1);
+    candidates.push({ date: yearly, label: "周年纪念" });
+  }
+  const daysSince = Math.round((todayStart - start) / 86400000);
+  for (const interval of item.intervals || []) {
+    const k = daysSince >= 0 ? Math.floor(daysSince / interval) + 1 : 1;
+    const next = new Date(start);
+    next.setDate(next.getDate() + k * interval);
+    candidates.push({ date: next, label: `${interval} 天纪念` });
+  }
+  candidates.sort((a, b) => a.date - b.date);
+  return candidates[0] || null;
+}
+
+function anniversaryLabelOn(item, date) {
+  const start = anniversaryStart(item);
+  if (!start) return "";
+  const dayStart = new Date(`${isoFor(date)}T00:00:00`);
+  const daysSince = Math.round((dayStart - start) / 86400000);
+  if (item.yearly && date.getMonth() === start.getMonth() && date.getDate() === start.getDate()) {
+    const years = date.getFullYear() - start.getFullYear();
+    return years > 0 ? `${years} 周年纪念` : "纪念日";
+  }
+  for (const interval of item.intervals || []) {
+    if (daysSince > 0 && daysSince % interval === 0) return `${daysSince} 天纪念（${interval} 天节点）`;
+  }
+  return "";
+}
+
+function anniversaryCard(item) {
+  const days = anniversaryDaysSince(item);
+  const next = anniversaryNext(item);
+  const daysLeft = next ? Math.max(0, Math.round((next.date - new Date(`${todayISO()}T00:00:00`)) / 86400000)) : null;
+  const intervals = (item.intervals || []).join("、");
+  return `<article class="panel anniv-card">
+    <div class="anniv-main">
+      <strong>${esc(item.name)}</strong>
+      <span class="panel-meta">起点 ${esc(formatDate(item.date))}${days != null ? ` · ${days >= 0 ? `第 ${days} 天` : `还有 ${-days} 天开始`}` : ""}</span>
+    </div>
+    <div class="anniv-next">
+      ${next
+        ? `<span>下一个：${esc(next.label)}</span><strong>${daysLeft} 天后</strong>`
+        : `<span class="panel-meta">没有设置提醒节点</span>`}
+    </div>
+    <div class="anniv-meta">
+      ${item.yearly ? "每年提醒" : "不按年提醒"}${intervals ? ` · 间隔 ${esc(intervals)} 天` : ""}${item.remindEnabled ? ` · 通知 ${esc(item.remindTime || "08:00")}` : " · 未开通知"}
+    </div>
+    <div class="form-actions">
+      <button class="btn-icon" data-action="edit-anniversary" data-id="${esc(item.id)}" aria-label="编辑">${icon("edit")}</button>
+      <button class="btn-icon btn-danger" data-action="delete-anniversary" data-id="${esc(item.id)}" aria-label="删除">${icon("trash")}</button>
+    </div>
+  </article>`;
+}
+
+function renderAnniversaries() {
+  const sorted = [...state.anniversaries].sort((a, b) => {
+    const aNext = anniversaryNext(a)?.date || Infinity;
+    const bNext = anniversaryNext(b)?.date || Infinity;
+    return aNext - bNext;
+  });
+  return `
+    <div class="page-head">
+      <div>
+        <h1>纪念日</h1>
+        <p>每年提醒、100 天、365 天……重要的日子都放在这里。</p>
+      </div>
+      <div class="page-actions">
+        <span class="panel-meta">${state.anniversaries.length} 个纪念日</span>
+        <button class="btn btn-compact" data-action="clear-page" data-page="anniversaries">${icon("trash")}一键清空</button>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="form-row">
+        <label class="field-label">名称
+          <input id="anniv-name" placeholder="例如：在一起、生日、入学" autocomplete="off">
+        </label>
+        <label class="field-label">起始日期
+          <input id="anniv-date" type="date">
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field-label">间隔提醒（天，多个用逗号）
+          <input id="anniv-intervals" placeholder="例如：100, 200, 365" autocomplete="off">
+        </label>
+        <label class="field-label">提醒时间
+          <input id="anniv-remind-time" type="time" value="08:00">
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="switch-line"><input type="checkbox" id="anniv-yearly"> 每年提醒（生日、周年）</label>
+        <label class="switch-line"><input type="checkbox" id="anniv-remind" checked> 开启通知</label>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" data-action="save-anniversary">${icon("plus")}${editingAnniversaryId ? "保存修改" : "添加纪念日"}</button>
+        ${editingAnniversaryId ? `<button class="btn" data-action="cancel-anniversary">${icon("x")}取消</button>` : ""}
+      </div>
+    </div>
+
+    ${sorted.length
+      ? `<div class="big-grid">${sorted.map(anniversaryCard).join("")}</div>`
+      : `<div class="panel"><div class="empty-note">还没有纪念日。把重要日期和间隔节点加进来，到点提醒你。</div></div>`}
+  `;
+}
+
+function saveAnniversary() {
+  const name = $("#anniv-name").value.trim();
+  const date = $("#anniv-date").value;
+  if (!name || !date) {
+    toast("请填写名称和起始日期");
+    return;
+  }
+  const payload = {
+    name,
+    date,
+    yearly: Boolean($("#anniv-yearly")?.checked),
+    intervals: parseAnniversaryIntervals($("#anniv-intervals")?.value),
+    remindEnabled: Boolean($("#anniv-remind")?.checked),
+    remindTime: $("#anniv-remind-time")?.value || "08:00"
+  };
+  if (editingAnniversaryId) {
+    const item = state.anniversaries.find((entry) => entry.id === editingAnniversaryId);
+    if (item) Object.assign(item, payload);
+  } else {
+    state.anniversaries.unshift({ id: uid("anniv"), ...payload });
+  }
+  editingAnniversaryId = null;
+  scheduleSave();
+  scheduleRemindersSoon();
+  render();
+  toast("纪念日已保存");
+}
+
+function startEditAnniversary(id) {
+  const item = state.anniversaries.find((entry) => entry.id === id);
+  if (!item) return;
+  editingAnniversaryId = id;
+  render();
+  $("#anniv-name").value = item.name;
+  $("#anniv-date").value = item.date || "";
+  $("#anniv-intervals").value = (item.intervals || []).join(", ");
+  $("#anniv-yearly").checked = Boolean(item.yearly);
+  $("#anniv-remind").checked = item.remindEnabled !== false;
+  $("#anniv-remind-time").value = item.remindTime || "08:00";
+  $("#anniv-name").focus();
+}
+
+function deleteAnniversary(id) {
+  if (!confirm("确定删除这个纪念日吗？")) return;
+  state.anniversaries = state.anniversaries.filter((entry) => entry.id !== id);
+  if (editingAnniversaryId === id) editingAnniversaryId = null;
+  scheduleSave();
+  scheduleRemindersSoon();
+  render();
 }
 
 function renderReview() {
@@ -3282,6 +3563,10 @@ function renderSettings() {
           <label class="field-label">工作台标题
             <input id="set-title" value="${esc(state.settings.title)}" placeholder="我的工作台" autocomplete="off">
           </label>
+          <label class="field-label">当前学期开学日期
+            <input id="semester-start" type="date" value="${esc(state.settings.semesterStart || "")}">
+          </label>
+          <span class="panel-meta">设置后课表会按日期自动显示当前周，也可在课表页手动切换。</span>
         </div>
         <button class="btn btn-primary" data-action="save-settings">${icon("save")}保存</button>
       </section>
@@ -3422,6 +3707,7 @@ function render(scrollToTop = false) {
     assets: renderAssets,
     rooms: renderRooms,
     daily: renderDaily,
+    anniversaries: renderAnniversaries,
     review: renderReview,
     settings: renderSettings
   };
@@ -4331,6 +4617,7 @@ function deleteReview(id) {
 function saveSettings() {
   state.settings.name = $("#set-name").value.trim();
   state.settings.title = $("#set-title").value.trim() || "我的工作台";
+  state.settings.semesterStart = $("#semester-start")?.value.trim() || "";
   scheduleSave();
   render();
   toast("设置已保存");
@@ -4726,7 +5013,7 @@ async function logoutAccount() {
 
 function emptyState() {
   return {
-    settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "" },
+    settings: { name: "", title: "我的工作台", hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "", semesterStart: "", currentWeekAuto: true },
     focus: {},
     tasks: [],
     habits: [],
@@ -4735,7 +5022,8 @@ function emptyState() {
     notes: [],
     assets: [],
     rooms: [],
-    reviews: []
+    reviews: [],
+    anniversaries: []
   };
 }
 
@@ -5084,7 +5372,7 @@ async function loadDemo() {
 
 async function clearData() {
   if (!confirm("确定清空全部数据吗？此操作会重置任务、习惯、课表、记录和复盘。")) return;
-  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "" };
+  state.settings = { name: state.settings.name, title: state.settings.title, hideMobileNav: true, dailyPushEnabled: false, dailyPushTime: "08:00", currentScheduleSet: "", semesterStart: "", currentWeekAuto: true };
   state.focus = {};
   state.tasks = [];
   state.habits = [];
@@ -5098,6 +5386,7 @@ async function clearData() {
   state.assets = [];
   state.rooms = [];
   state.reviews = [];
+  state.anniversaries = [];
   scheduleSave();
   render();
   toast("数据已清空");
@@ -5111,7 +5400,8 @@ function clearPageData(page) {
     notes: { key: "notes", label: "全部记录" },
     assets: { key: "assets", label: "全部资料图片" },
     rooms: { key: "rooms", label: "全部空教室记录" },
-    reviews: { key: "reviews", label: "全部复盘" }
+    reviews: { key: "reviews", label: "全部复盘" },
+    anniversaries: { key: "anniversaries", label: "全部纪念日" }
   };
   const target = map[page];
   if (!target) return;
@@ -5266,6 +5556,14 @@ function handleClick(event) {
   if (action === "save-review") return saveReview();
   if (action === "edit-review") return startEditReview(id);
   if (action === "delete-review") return deleteReview(id);
+  if (action === "save-anniversary") return saveAnniversary();
+  if (action === "edit-anniversary") return startEditAnniversary(id);
+  if (action === "delete-anniversary") return deleteAnniversary(id);
+  if (action === "cancel-anniversary") {
+    editingAnniversaryId = null;
+    render();
+    return;
+  }
   if (action === "save-settings") return saveSettings();
   if (action === "save-ai") return saveAIConfig();
   if (action === "login-account") return loginAccount();
@@ -5371,6 +5669,7 @@ document.addEventListener("change", async (event) => {
     return;
   }
   if (event.target.id === "current-week") {
+    state.settings.currentWeekAuto = event.target.value === "";
     state.settings.currentWeek = event.target.value ? Number(event.target.value) : 0;
     scheduleSave();
     render();

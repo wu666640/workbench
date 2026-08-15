@@ -82,6 +82,10 @@
           <svg class="icon" aria-hidden="true"><use href="#icon-news"></use></svg>
           <span>资讯</span>
         </button>
+        <button class="nav-btn" data-view="anniversaries">
+          <svg class="icon" aria-hidden="true"><use href="#icon-gift"></use></svg>
+          <span>纪念日</span>
+        </button>
         <button class="nav-btn" data-view="review">
           <svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>
           <span>复盘</span>
@@ -141,6 +145,10 @@
       <button class="dock-btn" data-view="daily" aria-label="资讯">
         <svg class="icon" aria-hidden="true"><use href="#icon-news"></use></svg>
         <span>资讯</span>
+      </button>
+      <button class="dock-btn" data-view="anniversaries" aria-label="纪念日">
+        <svg class="icon" aria-hidden="true"><use href="#icon-gift"></use></svg>
+        <span>纪念日</span>
       </button>
       <button class="dock-btn" data-view="review" aria-label="复盘">
         <svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>
@@ -250,9 +258,14 @@
         <rect x="4" y="4" width="16" height="16" rx="1"></rect>
         <path d="M8 8h8M8 12h8M8 16h5"></path>
       </symbol>
+      <symbol id="icon-gift" viewBox="0 0 24 24">
+        <rect x="4" y="9" width="16" height="12" rx="1"></rect>
+        <path d="M4 13h16M12 9v12M12 9s-3-6-5-6 0 6 5 6zM12 9s3-6 5-6 0 6-5 6z"></path>
+      </symbol>
     </defs>
   </svg>
   <script src="assets/xlsx.full.min.js"></script>
+  <script src="assets/lunar.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

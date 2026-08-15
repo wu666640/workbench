@@ -1,5 +1,5 @@
 {
-  "version": "1.4.2",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.4.2.apk",
-  "announcement": "课表命名新增“保存课表名”按钮：输入新名字即可重命名当前课表，也能直接创建新课表。"
+  "version": "1.6.0",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.6.0.apk",
+  "announcement": "新增纪念日页面，可每年提醒和按 100 天等间隔提醒；节日当天精句优先显示节日祝福；课表当前周支持按开学日期自动切换。"
 }
