@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.4.0.apk",
-  "announcement": "每日精句现在标注完整出处；课表升级为多套备份，导入保存为独立课表，可自定义命名，也能新建空白课表继续添加。"
+  "version": "1.4.1",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.4.1.apk",
+  "announcement": "修复课表导入：网页格式/另存为 HTML 的课表文件，一次课两节现在会正确合并，不会再被拆成单节。"
 }

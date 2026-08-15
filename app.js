@@ -61,7 +61,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -1318,7 +1318,10 @@ function parseScheduleHTML(html) {
           !periodRangeFromLabel(periodLabel) && map[1] && periodRangeFromLabel(map[1].textContent)
             ? map[1].textContent
             : periodLabel;
-        if (cell) courses.push(...parseCourseCell(cell.innerHTML, header.weekday, periodLabelCell, periodTable));
+        if (cell) {
+          const effectiveLabel = expandPeriodLabelForRowSpan(periodLabelCell, cell.rowSpan);
+          courses.push(...parseCourseCell(cell.innerHTML, header.weekday, effectiveLabel, periodTable));
+        }
       }
     }
     return dedupeCourses(courses);
@@ -1329,13 +1332,16 @@ function parseScheduleHTML(html) {
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
       const cells = Array.from(rows[rowIndex].cells);
       const periodLabel = cells[0] ? cleanCellText(cells[0].innerHTML) : "";
-      const periodLabelCell =
-        !periodRangeFromLabel(periodLabel) && cells[1] && periodRangeFromLabel(cells[1].textContent)
-          ? cleanCellText(cells[1].innerHTML)
-          : periodLabel;
+        const periodLabelCell =
+          !periodRangeFromLabel(periodLabel) && cells[1] && periodRangeFromLabel(cells[1].textContent)
+            ? cleanCellText(cells[1].innerHTML)
+            : periodLabel;
       for (let index = 1; index <= 7; index += 1) {
         const cell = cells[index];
-        if (cell) courses.push(...parseCourseCell(cell.innerHTML, index - 1, periodLabelCell, periodTable));
+        if (cell) {
+          const effectiveLabel = expandPeriodLabelForRowSpan(periodLabelCell, cell.rowSpan);
+          courses.push(...parseCourseCell(cell.innerHTML, index - 1, effectiveLabel, periodTable));
+        }
       }
     }
   }
@@ -1516,6 +1522,15 @@ function periodRangeFromLabel(label) {
     if (number) return [number, number];
   }
   return null;
+}
+
+function expandPeriodLabelForRowSpan(label, rowSpan) {
+  const span = Number(rowSpan) || 1;
+  if (span <= 1) return label;
+  const range = periodRangeFromLabel(label);
+  if (!range) return label;
+  const end = range[0] + span - 1;
+  return end > range[1] ? `第${range[0]}-${end}节` : label;
 }
 
 function findWeekdayHeaderRow(rows) {
@@ -5289,16 +5304,18 @@ document.addEventListener("change", async (event) => {
     const buffer = await file.arrayBuffer();
     const signature = new Uint8Array(buffer.slice(0, 8));
     const isOle = signature[0] === 0xd0 && signature[1] === 0xcf && signature[2] === 0x11 && signature[3] === 0xe0;
-    if ((lowerName.endsWith(".xls") && isOle) || lowerName.endsWith(".xlsx")) {
+    if (lowerName.endsWith(".xls") || lowerName.endsWith(".xlsx")) {
       const parsed = parseXlsSchedule(buffer, file.name);
-      importFileText = "";
-      importFileName = file.name;
-      pendingImport = parsed.courses || [];
-      if (parsed.semester) importSetName = parsed.semester;
-      rerenderImport();
-      if (parsed.error) toast(parsed.error);
-      else if (!pendingImport.length) toast("没有识别到课程，请确认是学生课表文件");
-      return;
+      if (parsed.courses?.length || parsed.error || isOle) {
+        importFileText = "";
+        importFileName = file.name;
+        pendingImport = parsed.courses || [];
+        if (parsed.semester) importSetName = parsed.semester;
+        rerenderImport();
+        if (parsed.error) toast(parsed.error);
+        else if (!pendingImport.length) toast("没有识别到课程，请确认是学生课表文件");
+        return;
+      }
     }
     const reader = new FileReader();
     reader.onload = () => {
