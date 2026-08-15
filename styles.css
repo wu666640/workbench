@@ -1305,8 +1305,13 @@ textarea:focus {
   gap: 10px;
 }
 
-.anniv-photo {
+.anniv-photo-wrap {
   position: relative;
+  width: 100%;
+  border-radius: var(--radius);
+}
+
+.anniv-photo {
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow-y: auto;
@@ -1331,7 +1336,7 @@ textarea:focus {
   cursor: zoom-in;
 }
 
-.anniv-photo.has-day::after {
+.anniv-photo-wrap.has-day::after {
   content: "";
   position: absolute;
   left: 0;
