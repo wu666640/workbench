@@ -1309,21 +1309,22 @@ textarea:focus {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   border-radius: var(--radius);
   background: rgba(37, 48, 63, 0.08);
 }
 
 .anniv-photo img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
   display: block;
 }
 
 .anniv-photo-open {
-  position: absolute;
-  inset: 0;
+  display: block;
+  width: 100%;
   padding: 0;
   border: 0;
   background: transparent;

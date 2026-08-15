@@ -1,7 +1,7 @@
 {
   "name": "我的工作台",
   "short_name": "工作台",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "个人日常规划、课表、待办与记录",
   "start_url": "./index.html",
   "scope": "./",
