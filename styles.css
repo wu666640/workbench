@@ -594,6 +594,22 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--rose-soft);
 }
 
+.set-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.set-name-line input {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-name-line .btn {
+  flex: none;
+}
+
 .quick-add select {
   min-width: 104px;
 }

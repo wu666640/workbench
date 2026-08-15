@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.4.1.apk",
-  "announcement": "修复课表导入：网页格式/另存为 HTML 的课表文件，一次课两节现在会正确合并，不会再被拆成单节。"
+  "version": "1.4.2",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.4.2.apk",
+  "announcement": "课表命名新增“保存课表名”按钮：输入新名字即可重命名当前课表，也能直接创建新课表。"
 }

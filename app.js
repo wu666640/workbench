@@ -61,7 +61,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.2";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2477,8 +2477,11 @@ function renderSchedule() {
       </div>
       <div class="form-row wide">
         <label class="field-label">课表名称
-          <input id="course-semester" list="course-semester-list" value="${esc(scheduleSemester || "")}" placeholder="例如：2026春季学期" autocomplete="off">
-          <datalist id="course-semester-list">${scheduleSemesterList().map((semester) => `<option value="${esc(semester)}"></option>`).join("")}</datalist>
+          <span class="set-name-line">
+            <input id="course-semester" list="course-semester-list" value="${esc(scheduleSemester || "")}" placeholder="例如：2026春季学期" autocomplete="off">
+            <datalist id="course-semester-list">${scheduleSemesterList().map((semester) => `<option value="${esc(semester)}"></option>`).join("")}</datalist>
+            <button class="btn btn-compact" data-action="save-schedule-name">${icon("save")}保存课表名</button>
+          </span>
         </label>
       </div>
       <div class="form-actions">
@@ -4147,6 +4150,34 @@ function startEditCourse(id) {
   $("#course-title").focus();
 }
 
+function saveScheduleName() {
+  const name = $("#course-semester")?.value.trim();
+  if (!name) {
+    toast("先输入课表名称");
+    return;
+  }
+  const oldName = scheduleSemester;
+  if (oldName === name) {
+    toast("课表名称没有变化");
+    return;
+  }
+  if (state.schedule.some((item) => item.semester === name)) {
+    toast(`已存在同名课表：${name}`);
+    return;
+  }
+  let renamed = 0;
+  for (const item of state.schedule) {
+    if (oldName ? item.semester === oldName : !item.semester) {
+      item.semester = name;
+      renamed += 1;
+    }
+  }
+  setScheduleSet(name);
+  scheduleSave();
+  render();
+  toast(oldName ? `课表已重命名为：${name}` : `已创建课表：${name}${renamed ? `（迁移 ${renamed} 门课程）` : ""}`);
+}
+
 function deleteCourse(id) {
   if (!confirm("确定删除这个安排吗？")) return;
   state.schedule = state.schedule.filter((item) => item.id !== id);
@@ -5201,6 +5232,7 @@ function handleClick(event) {
   if (action === "delete-habit") return deleteHabit(id);
   if (action === "save-habit") return saveHabit();
   if (action === "save-course") return saveCourse();
+  if (action === "save-schedule-name") return saveScheduleName();
   if (action === "edit-course") return startEditCourse(id);
   if (action === "delete-course") return deleteCourse(id);
   if (action === "save-note") return saveNote();
