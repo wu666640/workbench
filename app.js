@@ -64,7 +64,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.7.1";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2715,7 +2715,9 @@ function anniversaryCard(item) {
   const photo = item.image
     ? `<div class="anniv-photo ${dayText ? "has-day" : ""}">
         ${dayText ? `<span class="anniv-photo-text">${esc(item.name)} · ${esc(dayText)}</span>` : ""}
-        <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+        <button class="anniv-photo-open" data-action="open-image" data-url="${esc(item.image)}" aria-label="查看完整图片">
+          <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+        </button>
       </div>`
     : "";
   return `<article class="panel anniv-card">

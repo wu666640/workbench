@@ -1321,6 +1321,15 @@ textarea:focus {
   display: block;
 }
 
+.anniv-photo-open {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
 .anniv-photo.has-day::after {
   content: "";
   position: absolute;

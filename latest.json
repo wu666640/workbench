@@ -1,5 +1,5 @@
 {
-  "version": "1.7.0",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.7.0.apk",
-  "announcement": "纪念日支持上传图片，并可在图片上叠加“第 N 天”文字，随时隐藏或显示。"
+  "version": "1.7.1",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.7.1.apk",
+  "announcement": "纪念日图片支持点击打开完整大图，可缩放查看，不再只能看到裁剪后的预览。"
 }
