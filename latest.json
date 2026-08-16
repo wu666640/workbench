@@ -1,5 +1,5 @@
 {
-  "version": "1.8.0",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.8.0.apk",
-  "announcement": "纪念日图片显示方式可自由选择：裁剪预览可滚动，或完整显示不裁剪，每个纪念日单独保存。"
+  "version": "1.8.1",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.8.1.apk",
+  "announcement": "修复手机 App 设置页布局：内容不再被撑出屏幕，按钮自动换行铺满，页面可正常滚动到全部设置项。"
 }

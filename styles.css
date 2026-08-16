@@ -2450,6 +2450,28 @@ textarea:focus {
     align-items: stretch;
   }
 
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .settings-list,
+  .settings-row,
+  .settings-row > div {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .settings-row .form-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .settings-row .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
   .modal-backdrop {
     padding: 10px;
   }
