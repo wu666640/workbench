@@ -66,7 +66,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.10.1";
+const APP_VERSION = "1.10.2";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2302,7 +2302,7 @@ function celebrationMotifHtml(payload) {
       <span class="moon-cloud c2"></span>
     `;
   } else if (type === "hearts") {
-    const heartPath = "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z";
+    const heartPath = heartFormulaPath();
     const heartColors = ["#ff7aa2", "#ffd166", "#c084fc"];
     inner = `
       <div class="big-heart"><svg viewBox="0 0 24 24"><path d="${heartPath}"/></svg></div>
@@ -2383,12 +2383,16 @@ function openCelebrationOverlay() {
         <p>${esc(payload.subtitle)}</p>
       </div>
       ${payload.mode === "birthday" ? birthdayCakeHtml(payload.age) : ""}
-      <button class="celebration-close" data-action="close-celebration" aria-label="关闭">${icon("x")}</button>
+      <button class="celebration-close" data-action="close-celebration" aria-label="退出全屏"><span>${icon("x")}退出</span></button>
     </div>
   `;
   document.body.appendChild(overlay);
   document.body.classList.add("modal-open");
   startCelebrationCanvas(payload);
+  document.addEventListener("fullscreenchange", handleCelebrationFullscreenChange);
+  if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
   if (!occasionPreview) {
     try {
       localStorage.setItem(CELEBRATION_SHOWN_KEY, JSON.stringify({ date: todayISO(), mode: payload.mode, key: payload.key }));
@@ -2399,6 +2403,10 @@ function openCelebrationOverlay() {
 }
 
 function closeCelebrationOverlay() {
+  document.removeEventListener("fullscreenchange", handleCelebrationFullscreenChange);
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
   stopCelebrationCanvas();
   const overlay = $("#celebration-overlay");
   if (overlay) overlay.remove();
@@ -2407,6 +2415,12 @@ function closeCelebrationOverlay() {
     celebrationFallbackPreview = false;
     occasionPreview = "";
     render();
+  }
+}
+
+function handleCelebrationFullscreenChange() {
+  if (!document.fullscreenElement && $("#celebration-overlay")) {
+    closeCelebrationOverlay();
   }
 }
 
@@ -2503,12 +2517,32 @@ function drawCelebrationStar(ctx, x, y, outer, inner) {
 }
 
 function drawCelebrationHeart(ctx, size) {
+  const scale = size / 32;
   ctx.beginPath();
-  ctx.moveTo(0, size * 0.35);
-  ctx.bezierCurveTo(-size * 1.05, -size * 0.2, -size * 0.55, -size * 0.95, 0, -size * 0.5);
-  ctx.bezierCurveTo(size * 0.55, -size * 0.95, size * 1.05, -size * 0.2, 0, size * 0.35);
+  for (let index = 0; index <= 120; index += 1) {
+    const t = index / 120 * Math.PI * 2;
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    const px = x * scale;
+    const py = -y * scale;
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
   ctx.closePath();
   ctx.fill();
+}
+
+function heartFormulaPath(samples = 120) {
+  const points = [];
+  for (let index = 0; index <= samples; index += 1) {
+    const t = index / samples * Math.PI * 2;
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    const sx = (x / 32 + 0.5) * 24;
+    const sy = (y + 17) / 22 * 24;
+    points.push(`${index === 0 ? "M" : "L"}${sx.toFixed(2)} ${sy.toFixed(2)}`);
+  }
+  return points.join(" ");
 }
 
 function drawCelebrationParticle(ctx, particle) {

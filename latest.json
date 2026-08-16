@@ -1,5 +1,5 @@
 {
-  "version": "1.10.1",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.10.1.apk",
-  "announcement": "修复纪念日全屏爱心图形：大爱心、漂浮小爱心和粒子爱心都改成标准心形。"
+  "version": "1.10.2",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.10.2.apk",
+  "announcement": "纪念日爱心改为标准心形公式绘制；全屏庆祝页首次打开自动进入全屏，右上角退出按钮可退出。"
 }
