@@ -36,6 +36,7 @@ let editingHabitId = null;
 let editingCourseId = null;
 let editingReviewId = null;
 let editingAnniversaryId = null;
+let occasionPreview = "";
 let selectedHabitIcon = "water";
 let noteImageUrl = "";
 let anniversaryImageUrl = "";
@@ -64,7 +65,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.9.1";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2155,6 +2156,50 @@ function occasionFx() {
   }).join("")}</div>`;
 }
 
+function previewOccasionQuote() {
+  if (!occasionPreview) return null;
+  if (occasionPreview === "festival") {
+    return {
+      zh: "灯火可亲，今天也有明亮的小确幸。",
+      en: "Festival preview: warm lights and bright little joys.",
+      source: "节日特效预览",
+      festival: "节日"
+    };
+  }
+  if (occasionPreview === "birthday") {
+    return {
+      zh: "祝 预览名字 生日快乐！",
+      en: "Happy birthday, preview!",
+      source: "生日特效预览",
+      birthday: true,
+      birthdayName: "预览名字"
+    };
+  }
+  return {
+    zh: "今天是在一起的日子，认真对待它。",
+    en: "Today is a day worth remembering.",
+    source: "纪念日特效预览",
+    anniversary: true,
+    anniversaryName: "在一起"
+  };
+}
+
+function occasionPreviewButton() {
+  const active = occasionPreview ? " is-active" : "";
+  const labels = { festival: "节日预览中", birthday: "生日预览中", anniversary: "纪念日预览中" };
+  const label = occasionPreview ? labels[occasionPreview] || "预览中" : "特效预览";
+  return `<button class="btn btn-compact occasion-preview-btn${active}" data-action="toggle-occasion-preview">${icon("sun")}${label}</button>`;
+}
+
+function toggleOccasionPreview() {
+  const order = ["", "festival", "birthday", "anniversary"];
+  const next = (order.indexOf(occasionPreview) + 1) % order.length;
+  occasionPreview = order[next];
+  render();
+  if (!occasionPreview) toast("已退出特效预览");
+  else toast("特效预览中：点击按钮继续切换，再点一次退出");
+}
+
 function hashString(value) {
   let hash = 0;
   for (const char of String(value)) {
@@ -2255,7 +2300,7 @@ function dailyNewsListHtml(data) {
 }
 
 function renderDaily() {
-  const quote = dailyQuote();
+  const quote = previewOccasionQuote() || dailyQuote();
   const cached = readCachedDailyNews();
   const eyebrow = quote.festival
     ? `${esc(quote.festival)} · 节日祝福`
@@ -2273,6 +2318,7 @@ function renderDaily() {
       <div class="page-actions">
         <span class="panel-meta">${esc(formatDate(todayISO()))}</span>
         <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
+        ${occasionPreviewButton()}
         <button class="btn btn-compact" data-action="refresh-daily-news">${icon("refresh")}刷新新闻</button>
       </div>
     </div>
@@ -2336,7 +2382,7 @@ function renderToday() {
   const habits = state.habits.map((habit) => habitTile(habit, true)).join("");
   const notes = recentNotes();
   const progress = Math.round(dayProgress());
-  const quote = dailyQuote(today);
+  const quote = previewOccasionQuote() || dailyQuote(today);
   const specialBadge = quote.birthday
     ? `<span class="quote-festival quote-birthday">${icon("gift")}生日 · ${esc(quote.birthdayName)}</span>`
     : quote.anniversary
@@ -2368,6 +2414,7 @@ function renderToday() {
       <div class="quote-strip-actions">
         <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
         <button class="btn btn-compact" data-action="goto-daily">${icon("link")}今日灵感</button>
+        ${occasionPreviewButton()}
       </div>
     </section>
 
@@ -5564,6 +5611,7 @@ function handleClick(event) {
     return;
   }
   if (action === "shift-quote") return shiftDailyQuote();
+  if (action === "toggle-occasion-preview") return toggleOccasionPreview();
   if (action === "refresh-daily-news") {
     const body = $("#daily-news-body");
     if (body) body.innerHTML = `<div class="empty-note">正在刷新新闻…</div>`;
