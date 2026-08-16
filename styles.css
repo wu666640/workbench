@@ -1561,10 +1561,10 @@ textarea:focus {
 .big-heart {
   position: absolute;
   left: 50%;
-  top: 47%;
+  top: 61%;
   transform: translate(-50%, -50%);
-  width: clamp(132px, 26vw, 230px);
-  height: clamp(116px, 23vw, 204px);
+  width: clamp(110px, 22vw, 190px);
+  height: clamp(96px, 19vw, 168px);
   animation: heart-beat 1.7s ease-in-out infinite;
 }
 
