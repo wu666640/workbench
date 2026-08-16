@@ -64,7 +64,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.7.3";
+const APP_VERSION = "1.8.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2712,15 +2712,25 @@ function anniversaryCard(item) {
   const intervals = (item.intervals || []).join("、");
   const showDay = item.dayTextEnabled !== false && days != null && days >= 0;
   const dayText = showDay ? `第 ${days} 天` : "";
+  const imageMode = item.imageMode === "fit" ? "fit" : "crop";
   const photo = item.image
-    ? `<div class="anniv-photo-wrap ${dayText ? "has-day" : ""}">
-        <div class="anniv-photo">
-        <button class="anniv-photo-open" data-action="open-image" data-url="${esc(item.image)}" aria-label="查看完整图片">
-          <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
-        </button>
-        </div>
-        ${dayText ? `<span class="anniv-photo-text">${esc(item.name)} · ${esc(dayText)}</span>` : ""}
-      </div>`
+    ? imageMode === "fit"
+      ? `<div class="anniv-photo-wrap is-fit">
+          <div class="anniv-photo">
+            <button class="anniv-photo-open" data-action="open-image" data-url="${esc(item.image)}" aria-label="查看完整图片">
+              <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+            </button>
+          </div>
+          ${dayText ? `<span class="anniv-photo-caption">${esc(item.name)} · ${esc(dayText)}</span>` : ""}
+        </div>`
+      : `<div class="anniv-photo-wrap ${dayText ? "has-day" : ""}">
+          <div class="anniv-photo">
+            <button class="anniv-photo-open" data-action="open-image" data-url="${esc(item.image)}" aria-label="查看完整图片">
+              <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+            </button>
+          </div>
+          ${dayText ? `<span class="anniv-photo-text">${esc(item.name)} · ${esc(dayText)}</span>` : ""}
+        </div>`
     : "";
   return `<article class="panel anniv-card">
     ${photo}
@@ -2791,6 +2801,10 @@ function renderAnniversaries() {
             <input id="anniv-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
             <img id="anniv-image-preview" class="upload-preview ${anniversaryImageUrl ? "is-visible" : ""}" src="${esc(anniversaryImageUrl)}" alt="纪念日图片预览">
           </div>
+          <select id="anniv-image-mode">
+            <option value="crop">裁剪预览（固定高度可滚动）</option>
+            <option value="fit">完整显示（不裁剪）</option>
+          </select>
         </label>
       </div>
       <div class="form-actions">
@@ -2819,7 +2833,8 @@ function saveAnniversary() {
     intervals: parseAnniversaryIntervals($("#anniv-intervals")?.value),
     remindEnabled: Boolean($("#anniv-remind")?.checked),
     remindTime: $("#anniv-remind-time")?.value || "08:00",
-    image: anniversaryImageUrl
+    image: anniversaryImageUrl,
+    imageMode: $("#anniv-image-mode")?.value === "fit" ? "fit" : "crop"
   };
   if (editingAnniversaryId) {
     const item = state.anniversaries.find((entry) => entry.id === editingAnniversaryId);
@@ -2847,6 +2862,7 @@ function startEditAnniversary(id) {
   $("#anniv-yearly").checked = Boolean(item.yearly);
   $("#anniv-remind").checked = item.remindEnabled !== false;
   $("#anniv-remind-time").value = item.remindTime || "08:00";
+  $("#anniv-image-mode").value = item.imageMode === "fit" ? "fit" : "crop";
   $("#anniv-name").focus();
 }
 
