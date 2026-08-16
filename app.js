@@ -66,7 +66,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.10.0";
+const APP_VERSION = "1.10.1";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2302,9 +2302,11 @@ function celebrationMotifHtml(payload) {
       <span class="moon-cloud c2"></span>
     `;
   } else if (type === "hearts") {
+    const heartPath = "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z";
+    const heartColors = ["#ff7aa2", "#ffd166", "#c084fc"];
     inner = `
-      <div class="big-heart">${icon("heart")}</div>
-      ${Array.from({ length: 9 }, (_, index) => `<span class="float-heart h${(index % 3) + 1}" style="--hx:${8 + index * 10}%;--hd:${index * 0.7}s"></span>`).join("")}
+      <div class="big-heart"><svg viewBox="0 0 24 24"><path d="${heartPath}"/></svg></div>
+      ${Array.from({ length: 9 }, (_, index) => `<span class="float-heart" style="--hx:${8 + index * 10}%;--hd:${index * 0.7}s;--hc:${heartColors[index % 3]}"><svg viewBox="0 0 24 24"><path d="${heartPath}"/></svg></span>`).join("")}
     `;
   } else if (type === "snow") {
     inner = `
@@ -2502,9 +2504,9 @@ function drawCelebrationStar(ctx, x, y, outer, inner) {
 
 function drawCelebrationHeart(ctx, size) {
   ctx.beginPath();
-  ctx.moveTo(0, size * 0.3);
-  ctx.bezierCurveTo(-size * 0.95, -size * 0.45, -size * 0.4, -size * 1.2, 0, -size * 0.45);
-  ctx.bezierCurveTo(size * 0.4, -size * 1.2, size * 0.95, -size * 0.45, 0, size * 0.3);
+  ctx.moveTo(0, size * 0.35);
+  ctx.bezierCurveTo(-size * 1.05, -size * 0.2, -size * 0.55, -size * 0.95, 0, -size * 0.5);
+  ctx.bezierCurveTo(size * 0.55, -size * 0.95, size * 1.05, -size * 0.2, 0, size * 0.35);
   ctx.closePath();
   ctx.fill();
 }

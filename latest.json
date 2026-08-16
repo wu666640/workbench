@@ -1,5 +1,5 @@
 {
-  "version": "1.10.0",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.10.0.apk",
-  "announcement": "新增全屏庆祝页：生日显示带年龄蜡烛的蛋糕，纪念日有心形动画，不同节日有灯笼、月亮、雪景、星星烟花等专属特效；可随时用全屏特效按钮预览。"
+  "version": "1.10.1",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.10.1.apk",
+  "announcement": "修复纪念日全屏爱心图形：大爱心、漂浮小爱心和粒子爱心都改成标准心形。"
 }
