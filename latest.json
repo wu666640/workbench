@@ -1,5 +1,5 @@
 {
-  "version": "1.8.1",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.8.1.apk",
-  "announcement": "修复手机 App 设置页布局：内容不再被撑出屏幕，按钮自动换行铺满，页面可正常滚动到全部设置项。"
+  "version": "1.8.2",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.8.2.apk",
+  "announcement": "修复编辑纪念日时重新上传或移除图片会清空名称、日期等表单内容的问题。"
 }
