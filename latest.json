@@ -1,5 +1,5 @@
 {
-  "version": "1.9.1",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.9.1.apk",
-  "announcement": "新增“特效预览”按钮：首页和每日灵感可以随时切换查看节日、生日、纪念日三种动画效果，不用等到当天。"
+  "version": "1.10.0",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.10.0.apk",
+  "announcement": "新增全屏庆祝页：生日显示带年龄蜡烛的蛋糕，纪念日有心形动画，不同节日有灯笼、月亮、雪景、星星烟花等专属特效；可随时用全屏特效按钮预览。"
 }

@@ -37,6 +37,7 @@ let editingCourseId = null;
 let editingReviewId = null;
 let editingAnniversaryId = null;
 let occasionPreview = "";
+let celebrationFallbackPreview = false;
 let selectedHabitIcon = "water";
 let noteImageUrl = "";
 let anniversaryImageUrl = "";
@@ -65,7 +66,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.9.1";
+const APP_VERSION = "1.10.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2200,6 +2201,466 @@ function toggleOccasionPreview() {
   else toast("特效预览中：点击按钮继续切换，再点一次退出");
 }
 
+function todayCelebration() {
+  const date = new Date(`${todayISO()}T12:00:00`);
+  const festival = festivalQuote(date);
+  if (festival) {
+    return {
+      mode: "festival",
+      key: festival.festival,
+      title: `${festival.festival}快乐`,
+      subtitle: festival.zh,
+      quote: festival
+    };
+  }
+  const birthday = birthdayQuote(date);
+  if (birthday) {
+    const item = yearlyOccasionOn(date);
+    const start = anniversaryStart(item);
+    const age = birthday.birthday && start ? Math.max(0, date.getFullYear() - start.getFullYear()) : null;
+    return {
+      mode: birthday.birthday ? "birthday" : "anniversary",
+      key: birthday.birthday ? "生日" : "纪念日",
+      title: birthday.birthday ? `祝 ${birthday.birthdayName} 生日快乐` : `今天是${birthday.anniversaryName}的日子`,
+      subtitle: birthday.birthday ? `${age} 岁生日快乐` : "认真对待它",
+      name: birthday.birthday ? birthday.birthdayName : birthday.anniversaryName,
+      age,
+      quote: birthday
+    };
+  }
+  return null;
+}
+
+function celebrationPayload() {
+  if (occasionPreview === "festival") {
+    return {
+      mode: "festival",
+      key: "节日",
+      title: "节日快乐",
+      subtitle: "灯火可亲，今天也有明亮的小确幸。"
+    };
+  }
+  if (occasionPreview === "birthday") {
+    return {
+      mode: "birthday",
+      key: "生日",
+      title: "祝 预览名字 生日快乐",
+      subtitle: "18 岁生日快乐",
+      name: "预览名字",
+      age: 18
+    };
+  }
+  if (occasionPreview === "anniversary") {
+    return {
+      mode: "anniversary",
+      key: "纪念日",
+      title: "今天是在一起的日子",
+      subtitle: "认真对待它",
+      name: "在一起"
+    };
+  }
+  return todayCelebration();
+}
+
+function celebrationFullscreenButton() {
+  const active = celebrationPayload() ? " is-active" : "";
+  return `<button class="btn btn-compact celebration-fullscreen-btn${active}" data-action="open-celebration">${icon("sun")}全屏特效</button>`;
+}
+
+function celebrationMotifType(payload) {
+  if (payload.mode === "birthday") return "birthday";
+  if (payload.mode === "anniversary") return "hearts";
+  const key = payload.key;
+  if (key === "春节" || key === "除夕" || key === "元宵节") return "lanterns";
+  if (key === "中秋节") return "moon";
+  if (key === "国庆节" || key === "元旦节") return "stars";
+  if (key === "七夕节" || key === "情人节" || key === "妇女节" || key === "母亲节") return "hearts";
+  if (key === "圣诞节") return "snow";
+  if (key === "光棍节") return "solo";
+  return "fireworks";
+}
+
+function celebrationMotifHtml(payload) {
+  const type = celebrationMotifType(payload);
+  let inner = "";
+  if (type === "lanterns") {
+    inner = `
+      <span class="lantern l1"></span>
+      <span class="lantern l2"></span>
+      <span class="lantern l3"></span>
+      <span class="lantern l4"></span>
+      <span class="couplet left">福</span>
+      <span class="couplet right">安</span>
+    `;
+  } else if (type === "moon") {
+    inner = `
+      <div class="moon"></div>
+      <span class="moon-star s1"></span>
+      <span class="moon-star s2"></span>
+      <span class="moon-star s3"></span>
+      <span class="moon-cloud c1"></span>
+      <span class="moon-cloud c2"></span>
+    `;
+  } else if (type === "hearts") {
+    inner = `
+      <div class="big-heart">${icon("heart")}</div>
+      ${Array.from({ length: 9 }, (_, index) => `<span class="float-heart h${(index % 3) + 1}" style="--hx:${8 + index * 10}%;--hd:${index * 0.7}s"></span>`).join("")}
+    `;
+  } else if (type === "snow") {
+    inner = `
+      <div class="snow-tree"></div>
+      ${Array.from({ length: 14 }, (_, index) => `<span class="snowflake" style="--sx:${5 + index * 6.7}%;--sd:${index * 0.55}s;--ss:${6 + (index % 4) * 4}px"></span>`).join("")}
+    `;
+  } else if (type === "stars") {
+    inner = `
+      <div class="big-star"></div>
+      ${Array.from({ length: 8 }, (_, index) => `<span class="mini-star" style="--sx:${6 + index * 12}%;--sy:${12 + (index % 3) * 9}%;--sd:${index * 0.4}s"></span>`).join("")}
+    `;
+  } else if (type === "birthday") {
+    inner = `
+      ${Array.from({ length: 6 }, (_, index) => `<span class="balloon" style="--bx:${8 + index * 16}%;--bd:${index * 0.5}s;--bc:${["#ff7aa2", "#ffd166", "#9bd1ff", "#c084fc", "#ff9e5e", "#7fd1ff"][index]}"></span>`).join("")}
+      <span class="gift g1"></span>
+      <span class="gift g2"></span>
+      <span class="gift g3"></span>
+    `;
+  } else if (type === "solo") {
+    inner = `<div class="solo-cup">${icon("sun")}</div>`;
+  } else {
+    inner = `
+      <span class="firework f1"></span>
+      <span class="firework f2"></span>
+      <span class="firework f3"></span>
+      <span class="firework f4"></span>
+    `;
+  }
+  return `<div class="celebration-motif motif-${type}" aria-hidden="true">${inner}</div>`;
+}
+
+function birthdayCakeHtml(age) {
+  const candleCount = Math.max(1, Math.min(Number(age) || 1, 30));
+  const candles = Array.from({ length: candleCount }, (_, index) =>
+    `<i class="cake-candle" style="--delay:${(index % 7) * 0.16}s"></i>`
+  ).join("");
+  return `
+    <div class="birthday-cake" aria-label="生日蛋糕">
+      <div class="cake-candles">${candles}</div>
+      <div class="cake-tier cake-tier-top"></div>
+      <div class="cake-tier cake-tier-mid"></div>
+      <div class="cake-tier cake-tier-base"></div>
+      <div class="cake-plate"></div>
+      ${age > 30 ? `<span class="cake-age-badge">${age}</span>` : ""}
+    </div>
+  `;
+}
+
+const CELEBRATION_SHOWN_KEY = "workbench-celebration-shown-v1";
+
+function openCelebrationOverlay() {
+  let payload = celebrationPayload();
+  if (!payload) {
+    celebrationFallbackPreview = true;
+    occasionPreview = "festival";
+    render();
+    setTimeout(() => openCelebrationOverlay(), 0);
+    return;
+  }
+  const existing = $("#celebration-overlay");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "celebration-overlay";
+  overlay.id = "celebration-overlay";
+  overlay.dataset.mode = payload.mode;
+  overlay.dataset.key = payload.key;
+  overlay.innerHTML = `
+    <canvas id="celebration-canvas"></canvas>
+    <div class="celebration-scene">
+      ${celebrationMotifHtml(payload)}
+      <div class="celebration-title">
+        <span class="celebration-kicker">${payload.mode === "birthday" ? "HAPPY BIRTHDAY" : payload.mode === "festival" ? "CELEBRATE" : "A SPECIAL DAY"}</span>
+        <h2>${esc(payload.title)}</h2>
+        <p>${esc(payload.subtitle)}</p>
+      </div>
+      ${payload.mode === "birthday" ? birthdayCakeHtml(payload.age) : ""}
+      <button class="celebration-close" data-action="close-celebration" aria-label="关闭">${icon("x")}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.body.classList.add("modal-open");
+  startCelebrationCanvas(payload);
+  if (!occasionPreview) {
+    try {
+      localStorage.setItem(CELEBRATION_SHOWN_KEY, JSON.stringify({ date: todayISO(), mode: payload.mode, key: payload.key }));
+    } catch (err) {
+      // best-effort
+    }
+  }
+}
+
+function closeCelebrationOverlay() {
+  stopCelebrationCanvas();
+  const overlay = $("#celebration-overlay");
+  if (overlay) overlay.remove();
+  document.body.classList.remove("modal-open");
+  if (celebrationFallbackPreview) {
+    celebrationFallbackPreview = false;
+    occasionPreview = "";
+    render();
+  }
+}
+
+function maybeAutoShowCelebration() {
+  if (currentView !== "today" || occasionPreview || $("#celebration-overlay")) return;
+  try {
+    const shown = JSON.parse(localStorage.getItem(CELEBRATION_SHOWN_KEY) || "{}");
+    if (shown.date === todayISO()) return;
+  } catch (err) {
+    // fall through when storage is unavailable
+  }
+  setTimeout(() => {
+    if (currentView !== "today" || occasionPreview || $("#celebration-overlay")) return;
+    if (celebrationPayload()) openCelebrationOverlay();
+  }, 700);
+}
+
+const FESTIVAL_EFFECTS = {
+  "春节": { colors: ["#ff5252", "#ffd166", "#ff9e5e", "#ffffff"], shapes: ["circle", "rect", "star"], count: 150, glow: "#ff5f6d", bgTop: "#2b1216", bgBottom: "#0e1119", lanterns: true },
+  "除夕": { colors: ["#ff5252", "#ffd166", "#ff9e5e", "#ffffff"], shapes: ["circle", "rect", "star"], count: 150, glow: "#ff5f6d", bgTop: "#2b1216", bgBottom: "#0e1119", lanterns: true },
+  "元宵节": { colors: ["#ff8fa3", "#ffd166", "#f7b267", "#ffffff"], shapes: ["circle", "rect"], count: 130, glow: "#ffc371", bgTop: "#2a1626", bgBottom: "#0e1119", lanterns: true },
+  "中秋节": { colors: ["#ffe9a8", "#f7b267", "#f4845f", "#9ed8db"], shapes: ["circle", "star"], count: 90, glow: "#fff2c4", bgTop: "#14212d", bgBottom: "#0b0e18", moon: true, quiet: true },
+  "国庆节": { colors: ["#ff4d4d", "#ffd700", "#ff9e5e", "#ffffff"], shapes: ["star", "rect"], count: 150, glow: "#ff5f4d", bgTop: "#241016", bgBottom: "#0e1119" },
+  "七夕节": { colors: ["#ff7aa2", "#ff9fb2", "#c084fc", "#ffffff"], shapes: ["heart", "circle"], count: 110, glow: "#ff9fb2", bgTop: "#251528", bgBottom: "#0e1119" },
+  "情人节": { colors: ["#ff7aa2", "#ff9fb2", "#c084fc", "#ffffff"], shapes: ["heart", "circle"], count: 110, glow: "#ff9fb2", bgTop: "#251528", bgBottom: "#0e1119" },
+  "圣诞节": { colors: ["#e63946", "#2a9d8f", "#ffffff", "#f4a261"], shapes: ["circle", "star"], count: 130, glow: "#4cc9f0", bgTop: "#10222b", bgBottom: "#0b0e18", quiet: true },
+  "元旦节": { colors: ["#ffd166", "#ff5f6d", "#7fd1ff", "#ffffff"], shapes: ["circle", "star", "rect"], count: 140, glow: "#ffd166", bgTop: "#231522", bgBottom: "#0e1119" },
+  "劳动节": { colors: ["#ff5f6d", "#ffd166", "#4cc9f0", "#ffffff"], shapes: ["rect", "circle"], count: 120, glow: "#ffd166", bgTop: "#1f1d2a", bgBottom: "#0e1119" },
+  "端午节": { colors: ["#2f9e7b", "#ffd166", "#f4845f", "#ffffff"], shapes: ["circle", "rect"], count: 100, glow: "#2f9e7b", bgTop: "#10251f", bgBottom: "#0b0e18" },
+  "清明节": { colors: ["#8fa9b8", "#c6d8d3", "#e0eef0", "#ffffff"], shapes: ["circle", "star"], count: 80, glow: "#c6d8d3", bgTop: "#162027", bgBottom: "#0b0e18", quiet: true },
+  "重阳节": { colors: ["#f4845f", "#ffd166", "#c98a54", "#ffffff"], shapes: ["circle", "star"], count: 90, glow: "#f4a261", bgTop: "#241b16", bgBottom: "#0e1119" },
+  "妇女节": { colors: ["#ff7aa2", "#ffd166", "#b7a6f6", "#ffffff"], shapes: ["heart", "circle"], count: 110, glow: "#ff9fb2", bgTop: "#251528", bgBottom: "#0e1119" },
+  "母亲节": { colors: ["#ff9fb2", "#ffd166", "#f7b267", "#ffffff"], shapes: ["heart", "circle"], count: 110, glow: "#ff9fb2", bgTop: "#251528", bgBottom: "#0e1119" },
+  "父亲节": { colors: ["#5b8def", "#f4a261", "#ffffff", "#9bd1ff"], shapes: ["circle", "rect"], count: 90, glow: "#5b8def", bgTop: "#14213a", bgBottom: "#0b0e18" },
+  "教师节": { colors: ["#f4a261", "#ffd166", "#4cc9f0", "#ffffff"], shapes: ["circle", "star"], count: 100, glow: "#f4a261", bgTop: "#241b16", bgBottom: "#0e1119" },
+  "光棍节": { colors: ["#8d99ae", "#f4a261", "#ffffff", "#ffd166"], shapes: ["circle", "rect"], count: 80, glow: "#8d99ae", bgTop: "#1c1f2b", bgBottom: "#0b0e18" }
+};
+
+function celebrationTheme(payload) {
+  if (payload.mode === "birthday") {
+    return { colors: ["#ff7aa2", "#ffd166", "#ffffff", "#9bd1ff"], shapes: ["circle", "heart", "star"], count: 140, glow: "#ff7aa2", bgTop: "#2a1626", bgBottom: "#0e1119" };
+  }
+  if (payload.mode === "anniversary") {
+    return { colors: ["#ff7aa2", "#f4a261", "#ffffff", "#7fa9d4"], shapes: ["heart", "circle"], count: 110, glow: "#ff9fb2", bgTop: "#251528", bgBottom: "#0e1119" };
+  }
+  return FESTIVAL_EFFECTS[payload.key] || { colors: ["#ff7aa2", "#ffd166", "#ffffff", "#7fa9d4"], shapes: ["circle", "rect", "star"], count: 120, glow: "#ffd166", bgTop: "#1f1d2a", bgBottom: "#0e1119" };
+}
+
+let celebrationFrame = null;
+let celebrationResize = null;
+
+function celebrationParticle(theme, width, height) {
+  return {
+    x: Math.random() * width,
+    y: Math.random() * height * 0.6,
+    vx: (Math.random() - 0.5) * (theme.quiet ? 0.25 : 0.7),
+    vy: (theme.quiet ? 0.3 : 0.6) + Math.random() * (theme.quiet ? 0.6 : 1.6),
+    size: 3 + Math.random() * (theme.quiet ? 5 : 9),
+    color: theme.colors[Math.floor(Math.random() * theme.colors.length)],
+    shape: theme.shapes[Math.floor(Math.random() * theme.shapes.length)],
+    rot: Math.random() * Math.PI * 2,
+    vr: (Math.random() - 0.5) * 4,
+    seed: Math.random() * 100,
+    age: 0,
+    ttl: 4 + Math.random() * 4
+  };
+}
+
+function resetCelebrationParticle(particle, theme, width, height) {
+  particle.x = Math.random() * width;
+  particle.y = -20 - Math.random() * height * 0.25;
+  particle.vx = (Math.random() - 0.5) * (theme.quiet ? 0.25 : 0.7);
+  particle.vy = (theme.quiet ? 0.3 : 0.6) + Math.random() * (theme.quiet ? 0.6 : 1.6);
+  particle.color = theme.colors[Math.floor(Math.random() * theme.colors.length)];
+  particle.shape = theme.shapes[Math.floor(Math.random() * theme.shapes.length)];
+  particle.rot = Math.random() * Math.PI * 2;
+  particle.vr = (Math.random() - 0.5) * 4;
+  particle.age = 0;
+  particle.ttl = 4 + Math.random() * 4;
+}
+
+function drawCelebrationStar(ctx, x, y, outer, inner) {
+  ctx.beginPath();
+  for (let index = 0; index < 10; index += 1) {
+    const radius = index % 2 === 0 ? outer : inner;
+    const angle = -Math.PI / 2 + index * Math.PI / 5;
+    const px = x + Math.cos(angle) * radius;
+    const py = y + Math.sin(angle) * radius;
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCelebrationHeart(ctx, size) {
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.3);
+  ctx.bezierCurveTo(-size * 0.95, -size * 0.45, -size * 0.4, -size * 1.2, 0, -size * 0.45);
+  ctx.bezierCurveTo(size * 0.4, -size * 1.2, size * 0.95, -size * 0.45, 0, size * 0.3);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCelebrationParticle(ctx, particle) {
+  ctx.save();
+  ctx.translate(particle.x, particle.y);
+  ctx.rotate(particle.rot);
+  ctx.globalAlpha = Math.max(0, Math.min(1, 1 - particle.age / particle.ttl));
+  ctx.fillStyle = particle.color;
+  if (particle.shape === "circle") {
+    ctx.beginPath();
+    ctx.arc(0, 0, particle.size * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (particle.shape === "rect") {
+    ctx.fillRect(-particle.size * 0.5, -particle.size * 0.3, particle.size, particle.size * 0.6);
+  } else if (particle.shape === "heart") {
+    drawCelebrationHeart(ctx, particle.size);
+  } else {
+    drawCelebrationStar(ctx, 0, 0, particle.size * 0.62, particle.size * 0.28);
+  }
+  ctx.restore();
+}
+
+function drawCelebrationBackground(ctx, theme, width, height, time) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, theme.bgTop);
+  gradient.addColorStop(1, theme.bgBottom);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  const glow = ctx.createRadialGradient(width * 0.5, height * 0.38, 0, width * 0.5, height * 0.38, Math.max(width, height) * 0.45);
+  glow.addColorStop(0, theme.glow);
+  glow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.save();
+  ctx.globalAlpha = 0.2 + Math.sin(time * 0.8) * 0.06;
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+function drawCelebrationMoon(ctx, width, height, time) {
+  const x = width * 0.82;
+  const y = height * 0.2;
+  const radius = Math.min(width, height) * 0.1;
+  const halo = ctx.createRadialGradient(x, y, radius * 0.4, x, y, radius * 3.2);
+  halo.addColorStop(0, "rgba(255, 242, 196, 0.55)");
+  halo.addColorStop(1, "rgba(255, 242, 196, 0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(x - radius * 3.4, y - radius * 3.4, radius * 6.8, radius * 6.8);
+  ctx.fillStyle = "#fff3d6";
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(215, 183, 132, 0.7)";
+  ctx.beginPath();
+  ctx.arc(x - radius * 0.22, y - radius * 0.1, radius * 0.28, 0, Math.PI * 2);
+  ctx.arc(x + radius * 0.24, y + radius * 0.24, radius * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  void time;
+}
+
+function drawCelebrationLanterns(ctx, width, height, time) {
+  const count = Math.min(5, Math.max(3, Math.round(width / 240)));
+  const gap = width / (count + 1);
+  for (let index = 0; index < count; index += 1) {
+    const x = gap * (index + 1) + Math.sin(time + index) * 3;
+    const y = height * 0.08 + Math.sin(time * 1.2 + index * 1.7) * 3;
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, -2);
+    ctx.lineTo(x, y - 22);
+    ctx.stroke();
+    ctx.fillStyle = "#ffd166";
+    ctx.fillRect(x - 14, y - 24, 28, 5);
+    const lanternGradient = ctx.createLinearGradient(x - 16, 0, x + 16, 0);
+    lanternGradient.addColorStop(0, "#ff5252");
+    lanternGradient.addColorStop(0.5, "#ff9e5e");
+    lanternGradient.addColorStop(1, "#c22741");
+    ctx.fillStyle = lanternGradient;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 15, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffd166";
+    ctx.fillRect(x - 14, y + 18, 28, 4);
+    ctx.strokeStyle = "rgba(255,255,255,0.65)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 22);
+    ctx.lineTo(x, y + 32);
+    ctx.stroke();
+  }
+}
+
+function drawCelebrationExtras(ctx, theme, width, height, time) {
+  if (theme.moon) drawCelebrationMoon(ctx, width, height, time);
+  if (theme.lanterns) drawCelebrationLanterns(ctx, width, height, time);
+}
+
+function startCelebrationCanvas(payload) {
+  const canvas = $("#celebration-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const theme = celebrationTheme(payload);
+  let width = window.innerWidth;
+  let height = window.innerHeight;
+  let particles = [];
+  const resize = () => {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    particles = Array.from({ length: theme.count }, () => celebrationParticle(theme, width, height));
+  };
+  resize();
+  celebrationResize = resize;
+  window.addEventListener("resize", resize);
+  let last = performance.now();
+  const frame = (now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    const time = now / 1000;
+    drawCelebrationBackground(ctx, theme, width, height, time);
+    for (const particle of particles) {
+      particle.age += dt;
+      particle.vx += Math.sin(time * 2 + particle.seed) * (theme.quiet ? 0.04 : 0.12) * dt;
+      particle.vy += (theme.quiet ? 0.01 : 0.04) * dt;
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.rot += particle.vr * dt;
+      if (particle.y > height + 30 || particle.x < -40 || particle.x > width + 40) {
+        resetCelebrationParticle(particle, theme, width, height);
+      }
+    }
+    for (const particle of particles) drawCelebrationParticle(ctx, particle);
+    drawCelebrationExtras(ctx, theme, width, height, time);
+    celebrationFrame = requestAnimationFrame(frame);
+  };
+  celebrationFrame = requestAnimationFrame(frame);
+}
+
+function stopCelebrationCanvas() {
+  if (celebrationFrame) {
+    cancelAnimationFrame(celebrationFrame);
+    celebrationFrame = null;
+  }
+  if (celebrationResize) {
+    window.removeEventListener("resize", celebrationResize);
+    celebrationResize = null;
+  }
+}
+
 function hashString(value) {
   let hash = 0;
   for (const char of String(value)) {
@@ -2319,6 +2780,7 @@ function renderDaily() {
         <span class="panel-meta">${esc(formatDate(todayISO()))}</span>
         <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
         ${occasionPreviewButton()}
+        ${celebrationFullscreenButton()}
         <button class="btn btn-compact" data-action="refresh-daily-news">${icon("refresh")}刷新新闻</button>
       </div>
     </div>
@@ -2415,6 +2877,7 @@ function renderToday() {
         <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
         <button class="btn btn-compact" data-action="goto-daily">${icon("link")}今日灵感</button>
         ${occasionPreviewButton()}
+        ${celebrationFullscreenButton()}
       </div>
     </section>
 
@@ -3907,6 +4370,7 @@ function render(scrollToTop = false) {
   refreshUpdateStatus();
   if (currentView === "settings" && authSession) refreshProjectList();
   mountDailyNews();
+  maybeAutoShowCelebration();
   scheduleRemindersSoon();
 }
 
@@ -5612,6 +6076,8 @@ function handleClick(event) {
   }
   if (action === "shift-quote") return shiftDailyQuote();
   if (action === "toggle-occasion-preview") return toggleOccasionPreview();
+  if (action === "open-celebration") return openCelebrationOverlay();
+  if (action === "close-celebration") return closeCelebrationOverlay();
   if (action === "refresh-daily-news") {
     const body = $("#daily-news-body");
     if (body) body.innerHTML = `<div class="empty-note">正在刷新新闻…</div>`;
