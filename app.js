@@ -64,7 +64,7 @@ let webReminderQueue = [];
 let reminderStatusText = "等待安排";
 let updateStatusText = "未检查";
 const REMINDER_TAG = "workbench-reminder";
-const APP_VERSION = "1.8.2";
+const APP_VERSION = "1.9.0";
 const GITHUB_REPO = "wu666640/workbench";
 const AUTH_HELPER_URL = "https://6a7d87c0c1ab2018e4bf2f56--timely-raindrop-c922c1.netlify.app/.netlify/functions/auth-admin";
 const UPDATE_MANIFEST_URL = "https://wu666640.github.io/workbench/latest.json";
@@ -2097,6 +2097,64 @@ function festivalQuote(date = new Date()) {
   return { ...FESTIVAL_QUOTES[name], festival: name };
 }
 
+function yearlyOccasionOn(date) {
+  const month = date.getMonth();
+  const day = date.getDate();
+  return (state.anniversaries || []).find((item) => {
+    if (!item.yearly || !item.date) return false;
+    const start = anniversaryStart(item);
+    return start && start.getMonth() === month && start.getDate() === day;
+  }) || null;
+}
+
+function birthdayPersonName(item) {
+  const raw = String(item.name || "").trim();
+  const stripped = raw.replace(/^我的生日.*$/, "").replace(/生日.*$/, "").trim();
+  return stripped || String(state.settings?.name || "").trim() || "你";
+}
+
+function birthdayQuote(date = new Date()) {
+  const item = yearlyOccasionOn(date);
+  if (!item) return null;
+  const person = birthdayPersonName(item);
+  const isBirthday = /生日/.test(String(item.name || ""));
+  if (isBirthday) {
+    return {
+      zh: `祝 ${person} 生日快乐！`,
+      en: `Happy birthday, ${person}!`,
+      source: "生日祝福",
+      birthday: true,
+      birthdayName: person
+    };
+  }
+  return {
+    zh: `今天是${String(item.name || "特别的日子")}的日子，认真对待它。`,
+    en: "Today is a day worth remembering.",
+    source: "纪念日祝福",
+    anniversary: true,
+    anniversaryName: String(item.name || "特别的日子")
+  };
+}
+
+function occasionClasses(quote) {
+  const classes = ["quote-strip"];
+  if (quote.festival) classes.push("is-occasion", "is-festival");
+  if (quote.birthday) classes.push("is-occasion", "is-birthday");
+  if (quote.anniversary) classes.push("is-occasion", "is-anniversary");
+  return classes.join(" ");
+}
+
+function occasionFx() {
+  return `<div class="occasion-fx" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => {
+    const x = 6 + ((i * 97) % 88);
+    const delay = (i % 5) * 0.55;
+    const duration = 3.6 + (i % 4) * 0.8;
+    const drift = (i % 2 ? 1 : -1) * (8 + (i % 3) * 10);
+    const spark = i % 3 === 0 ? " is-spark" : "";
+    return `<i class="${spark}" style="--x:${x}%;--delay:${delay}s;--d:${duration}s;--drift:${drift}px"></i>`;
+  }).join("")}</div>`;
+}
+
 function hashString(value) {
   let hash = 0;
   for (const char of String(value)) {
@@ -2127,6 +2185,8 @@ function dailyQuote(dateISO = todayISO()) {
   if (pick) return DAILY_QUOTES[pick.index] || DAILY_QUOTES[0];
   const festival = festivalQuote(new Date(`${dateISO}T12:00:00`));
   if (festival) return festival;
+  const birthday = birthdayQuote(new Date(`${dateISO}T12:00:00`));
+  if (birthday) return birthday;
   return DAILY_QUOTES[dailyQuoteIndex(dateISO)];
 }
 
@@ -2197,6 +2257,13 @@ function dailyNewsListHtml(data) {
 function renderDaily() {
   const quote = dailyQuote();
   const cached = readCachedDailyNews();
+  const eyebrow = quote.festival
+    ? `${esc(quote.festival)} · 节日祝福`
+    : quote.birthday
+      ? `生日 · ${esc(quote.birthdayName)}`
+      : quote.anniversary
+        ? `纪念日 · ${esc(quote.anniversaryName)}`
+      : "DAILY QUOTE · 每日一句";
   return `
     <div class="page-head">
       <div>
@@ -2210,8 +2277,9 @@ function renderDaily() {
       </div>
     </div>
 
-    <section class="panel daily-quote-card">
-      <div class="quote-eyebrow">${quote.festival ? `${esc(quote.festival)} · 节日祝福` : "DAILY QUOTE · 每日一句"}</div>
+    <section class="panel daily-quote-card ${quote.festival || quote.birthday || quote.anniversary ? "is-occasion" : ""} ${quote.festival ? "is-festival" : ""} ${quote.birthday ? "is-birthday" : ""} ${quote.anniversary ? "is-anniversary" : ""}">
+      ${quote.festival || quote.birthday || quote.anniversary ? occasionFx() : ""}
+      <div class="quote-eyebrow">${eyebrow}</div>
       <blockquote class="daily-quote-body">
         <p class="quote-zh">${esc(quote.zh)}</p>
         <p class="quote-en">${esc(quote.en)}</p>
@@ -2269,6 +2337,11 @@ function renderToday() {
   const notes = recentNotes();
   const progress = Math.round(dayProgress());
   const quote = dailyQuote(today);
+  const specialBadge = quote.birthday
+    ? `<span class="quote-festival quote-birthday">${icon("gift")}生日 · ${esc(quote.birthdayName)}</span>`
+    : quote.anniversary
+      ? `<span class="quote-festival quote-anniversary">${icon("heart")}纪念日 · ${esc(quote.anniversaryName)}</span>`
+      : "";
 
   return `
     <section class="hero-band">
@@ -2282,14 +2355,16 @@ function renderToday() {
       </div>
     </section>
 
-    <section class="quote-strip">
-      <div class="quote-strip-mark">${icon("quote")}</div>
+    <section class="${occasionClasses(quote)}">
+      <div class="quote-strip-mark">${icon(quote.birthday ? "gift" : quote.anniversary ? "heart" : "quote")}</div>
       <blockquote>
         ${quote.festival ? `<span class="quote-festival">${esc(quote.festival)} · 节日祝福</span>` : ""}
+        ${specialBadge}
         <p class="quote-strip-zh">${esc(quote.zh)}</p>
         <p class="quote-strip-en">${esc(quote.en)}</p>
         <span class="quote-strip-source">出处：${esc(quote.source || quote.author || "佚名")}</span>
       </blockquote>
+      ${quote.festival || quote.birthday || quote.anniversary ? occasionFx() : ""}
       <div class="quote-strip-actions">
         <button class="btn btn-compact" data-action="shift-quote">${icon("refresh")}换一句</button>
         <button class="btn btn-compact" data-action="goto-daily">${icon("link")}今日灵感</button>

@@ -1,5 +1,5 @@
 {
-  "version": "1.8.2",
-  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.8.2.apk",
-  "announcement": "修复编辑纪念日时重新上传或移除图片会清空名称、日期等表单内容的问题。"
+  "version": "1.9.0",
+  "apkUrl": "https://wu666640.github.io/workbench/workbench-android-v1.9.0.apk",
+  "announcement": "首页节日与纪念日精句升级：节日、生日和每年纪念日当天显示专属动画与名字，生日自动送上名字祝福。"
 }
